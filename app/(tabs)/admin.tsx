@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
-  Platform
+  Platform,
 } from "react-native";
 import { supabase } from "../../supabaseConfig";
 import { Ionicons } from "@expo/vector-icons";
@@ -59,11 +59,27 @@ export default function AdminScreen() {
   const [tieneToppings, setTieneToppings] = useState(true);
 
   useEffect(() => {
+    // 1. Obtener sesión inicial
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) fetchData();
       setAuthLoading(false);
     });
+
+    // 2. Escuchar cambios (Login/Logout) en tiempo real
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        fetchData();
+      } else {
+        setData([]); // Limpiar datos al salir
+      }
+    });
+
+    // Limpiar el listener al desmontar el componente
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -72,11 +88,19 @@ export default function AdminScreen() {
 
   async function handleLogin() {
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (error) Alert.alert("Error", "Credenciales incorrectas");
+
+    if (error) {
+      Alert.alert("Error", "Credenciales incorrectas");
+    } else if (data.session) {
+      // ESTA ES LA CLAVE: Actualizar el estado local para que React re-renderice
+      setSession(data.session);
+      // Opcional: Si quieres cargar los datos de inmediato
+      fetchData();
+    }
     setLoading(false);
   }
 
@@ -116,26 +140,27 @@ export default function AdminScreen() {
 
   async function confirmarEliminar(id, nombreItem) {
     const mensaje = `¿Estás seguro de que deseas eliminar "${nombreItem}"?`;
-    
+
     // Soporte para Web
-    if (Platform.OS === 'web') {
+    if (Platform.OS === "web") {
       const confirmado = window.confirm(mensaje);
       if (confirmado) ejecutarEliminacion(id);
     } else {
       // Soporte para Móvil
       Alert.alert("Confirmar eliminación", mensaje, [
         { text: "Cancelar", style: "cancel" },
-        { text: "Eliminar", style: "destructive", onPress: () => ejecutarEliminacion(id) }
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: () => ejecutarEliminacion(id),
+        },
       ]);
     }
   }
 
   async function ejecutarEliminacion(id) {
     setLoading(true);
-    const { error } = await supabase
-      .from(activeTab)
-      .delete()
-      .eq('id', id);
+    const { error } = await supabase.from(activeTab).delete().eq("id", id);
 
     if (error) {
       console.error("Error al eliminar:", error);
