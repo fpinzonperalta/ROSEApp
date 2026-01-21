@@ -138,13 +138,13 @@ export default function AdminScreen() {
     }
   }
 
-  async function confirmarEliminar(id, nombreItem) {
-    const mensaje = `¿Estás seguro de que deseas eliminar "${nombreItem}"?`;
-
+  async function confirmarEliminar(id, nombreItem,esta_activo) { 
+    var msg = esta_activo == 'si' ? 'desactivar' : 'activar'
+    const mensaje = `¿Estás seguro de que deseas ${msg} "${nombreItem}"?`;
     // Soporte para Web
     if (Platform.OS === "web") {
       const confirmado = window.confirm(mensaje);
-      if (confirmado) ejecutarEliminacion(id);
+      if (confirmado) activarODesactivar(id,esta_activo);
     } else {
       // Soporte para Móvil
       Alert.alert("Confirmar eliminación", mensaje, [
@@ -152,15 +152,21 @@ export default function AdminScreen() {
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: () => ejecutarEliminacion(id),
+          onPress: () => activarODesactivar(id,esta_activo),
         },
       ]);
     }
   }
 
-  async function ejecutarEliminacion(id) {
+
+
+  async function activarODesactivar(id,esta_activo) {
     setLoading(true);
-    const { error } = await supabase.from(activeTab).delete().eq("id", id);
+    var data = esta_activo == 'si' ? 'no' : 'si'
+    const { error } = await supabase
+    .from(activeTab)
+    .update({"esta_activo":data})
+    .eq("id", id);
 
     if (error) {
       console.error("Error al eliminar:", error);
@@ -171,6 +177,7 @@ export default function AdminScreen() {
     }
     setLoading(false);
   }
+
 
   async function crearItem() {
     if (!nombre || !precio) return Alert.alert("Error", "Faltan datos");
@@ -352,9 +359,9 @@ export default function AdminScreen() {
                 {/* BOTÓN ELIMINAR */}
                 <TouchableOpacity
                   style={{ width: 50, alignItems: "center" }}
-                  onPress={() => confirmarEliminar(item.id, item.nombre)}
+                  onPress={() => confirmarEliminar(item.id, item.nombre,item.esta_activo)}
                 >
-                  <Ionicons name="trash-outline" size={22} color="#FF3B30" />
+                  <Ionicons name={item.esta_activo == 'si' ? 'checkmark-outline':'close-outline'} size={22} color={item.esta_activo == 'si' ? '#4CD964':'#FF3B30'} />
                 </TouchableOpacity>
               </View>
             )}

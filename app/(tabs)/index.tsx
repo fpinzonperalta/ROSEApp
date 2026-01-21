@@ -17,6 +17,7 @@ interface Topping {
   id: number;
   nombre: string;
   precio: number;
+  esta_activo:string;
 }
 
 interface Producto {
@@ -25,6 +26,7 @@ interface Producto {
   precio: number;
   stock: number;
   tiene_toppings?: boolean;
+  esta_activo:string;
 }
 
 export default function App() {
@@ -137,6 +139,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("productos")
       .select("*")
+      .eq('esta_activo','si')
       .order("nombre", { ascending: true });
     if (!error) setProductos(data);
     setCargando(false);
@@ -146,6 +149,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("toppings")
       .select("*")
+      .eq('esta_activo','si')
       .order("nombre", { ascending: true });
     if (!error) setToppingsBD(data);
   };
