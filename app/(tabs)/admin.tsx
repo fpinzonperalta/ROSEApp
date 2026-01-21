@@ -59,28 +59,40 @@ export default function AdminScreen() {
   const [tieneToppings, setTieneToppings] = useState(true);
 
   useEffect(() => {
-    // 1. Obtener sesión inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // 1. Verificar sesión actual al cargar
+    const checkInitialSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       setSession(session);
       if (session) fetchData();
       setAuthLoading(false);
-    });
+    };
 
-    // 2. Escuchar cambios (Login/Logout) en tiempo real
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        fetchData();
-      } else {
-        setData([]); // Limpiar datos al salir
-      }
-    });
+    checkInitialSession();
 
-    // Limpiar el listener al desmontar el componente
+    // 2. Escuchar cambios de forma robusta
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        setSession(newSession);
+
+        if (event === "SIGNED_IN" && newSession) {
+          fetchData();
+        }
+
+        if (event === "SIGNED_OUT") {
+          setData([]);
+          setPage(0);
+          setEmail(""); // Limpiar campos de login
+          setPassword("");
+        }
+      },
+    );
+
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     if (session) fetchData();
@@ -95,9 +107,10 @@ export default function AdminScreen() {
 
     if (error) {
       Alert.alert("Error", "Credenciales incorrectas");
-    } else if (data.session) {
+    } else if (data?.session) {
       // ESTA ES LA CLAVE: Actualizar el estado local para que React re-renderice
       setSession(data.session);
+      setPage(0);
       // Opcional: Si quieres cargar los datos de inmediato
       fetchData();
     }
@@ -138,13 +151,13 @@ export default function AdminScreen() {
     }
   }
 
-  async function confirmarEliminar(id, nombreItem,esta_activo) { 
-    var msg = esta_activo == 'si' ? 'desactivar' : 'activar'
+  async function confirmarEliminar(id, nombreItem, esta_activo) {
+    var msg = esta_activo == "si" ? "desactivar" : "activar";
     const mensaje = `¿Estás seguro de que deseas ${msg} "${nombreItem}"?`;
     // Soporte para Web
     if (Platform.OS === "web") {
       const confirmado = window.confirm(mensaje);
-      if (confirmado) activarODesactivar(id,esta_activo);
+      if (confirmado) activarODesactivar(id, esta_activo);
     } else {
       // Soporte para Móvil
       Alert.alert("Confirmar eliminación", mensaje, [
@@ -152,21 +165,19 @@ export default function AdminScreen() {
         {
           text: "Eliminar",
           style: "destructive",
-          onPress: () => activarODesactivar(id,esta_activo),
+          onPress: () => activarODesactivar(id, esta_activo),
         },
       ]);
     }
   }
 
-
-
-  async function activarODesactivar(id,esta_activo) {
+  async function activarODesactivar(id, esta_activo) {
     setLoading(true);
-    var data = esta_activo == 'si' ? 'no' : 'si'
+    var data = esta_activo == "si" ? "no" : "si";
     const { error } = await supabase
-    .from(activeTab)
-    .update({"esta_activo":data})
-    .eq("id", id);
+      .from(activeTab)
+      .update({ esta_activo: data })
+      .eq("id", id);
 
     if (error) {
       console.error("Error al eliminar:", error);
@@ -177,7 +188,6 @@ export default function AdminScreen() {
     }
     setLoading(false);
   }
-
 
   async function crearItem() {
     if (!nombre || !precio) return Alert.alert("Error", "Faltan datos");
@@ -236,7 +246,12 @@ export default function AdminScreen() {
             <TouchableOpacity onPress={() => setModalVisible(true)}>
               <Ionicons name="add-circle" size={35} color="#4CD964" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => supabase.auth.signOut()}>
+            <TouchableOpacity
+              onPress={() => {
+                supabase.auth.signOut();
+                setSession(null);
+              }}
+            >
               <Ionicons name="log-out-outline" size={30} color="#FF3B30" />
             </TouchableOpacity>
           </View>
@@ -359,9 +374,19 @@ export default function AdminScreen() {
                 {/* BOTÓN ELIMINAR */}
                 <TouchableOpacity
                   style={{ width: 50, alignItems: "center" }}
-                  onPress={() => confirmarEliminar(item.id, item.nombre,item.esta_activo)}
+                  onPress={() =>
+                    confirmarEliminar(item.id, item.nombre, item.esta_activo)
+                  }
                 >
-                  <Ionicons name={item.esta_activo == 'si' ? 'checkmark-outline':'close-outline'} size={22} color={item.esta_activo == 'si' ? '#4CD964':'#FF3B30'} />
+                  <Ionicons
+                    name={
+                      item.esta_activo == "si"
+                        ? "checkmark-outline"
+                        : "close-outline"
+                    }
+                    size={22}
+                    color={item.esta_activo == "si" ? "#4CD964" : "#FF3B30"}
+                  />
                 </TouchableOpacity>
               </View>
             )}
