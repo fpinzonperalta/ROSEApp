@@ -27,6 +27,7 @@ interface Venta {
   created_at: string;
   nombre_producto: string;
   toppings_texto: string;
+  metodo_pago: string; // <-- Nuevo campo añadido
 }
 
 export default function HistorialVentas() {
@@ -58,6 +59,7 @@ export default function HistorialVentas() {
           id, 
           total, 
           created_at,
+          metodo_pago,
           productos ( nombre ),
           ventas_toppings ( toppings ( nombre ) )
         `,
@@ -73,6 +75,7 @@ export default function HistorialVentas() {
           id: v.id,
           total: v.total,
           created_at: v.created_at,
+          metodo_pago: v.metodo_pago || "Efectivo", // Valor por defecto
           nombre_producto: v.productos?.nombre || "Producto no encontrado",
           toppings_texto:
             v.ventas_toppings
@@ -105,10 +108,24 @@ export default function HistorialVentas() {
     const totalRecaudado = ventas
       .reduce((acc, v) => acc + v.total, 0)
       .toLocaleString();
+    
+    // Cálculo por método de pago
+    const totalEfectivo = ventas
+      .filter(v => v.metodo_pago === "Efectivo")
+      .reduce((acc, v) => acc + v.total, 0)
+      .toLocaleString();
+    
+    const totalTransferencia = ventas
+      .filter(v => v.metodo_pago === "Transferencia")
+      .reduce((acc, v) => acc + v.total, 0)
+      .toLocaleString();
+
     const insumos = obtenerResumenToppings();
 
     let mensaje = `*📊 REPORTE DE VENTAS - ${fechaFormateada}*\n\n`;
-    mensaje += `*💰 Total Recaudado:* $${totalRecaudado}\n`;
+    mensaje += `*💰 TOTAL RECAUDADO: $${totalRecaudado}*\n`;
+    mensaje += `💵 Efectivo: $${totalEfectivo}\n`;
+    mensaje += `📱 Transferencia: $${totalTransferencia}\n\n`;
     mensaje += `*🍦 Ventas realizadas:* ${ventas.length}\n\n`;
     mensaje += `*📦 RESUMEN DE INSUMOS:*\n`;
     insumos.forEach((item) => {
@@ -140,7 +157,6 @@ export default function HistorialVentas() {
     if (selectedDate) setFechaFiltro(selectedDate);
   };
 
-  // --- COMPONENTE SELECTOR CONDICIONAL ---
   const renderDatePicker = () => {
     if (Platform.OS === "web") {
       return (
@@ -235,6 +251,13 @@ export default function HistorialVentas() {
                       .reduce((acc, v) => acc + v.total, 0)
                       .toLocaleString("es-ES")}
                   </Text>
+                  
+                  {/* Desglose rápido en la tarjeta de resumen */}
+                  <View style={styles.desglosePagos}>
+                    <Text style={styles.desgloseTexto}>💵 EF: ${ventas.filter(v => v.metodo_pago === 'Efectivo').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
+                    <Text style={styles.desgloseTexto}>📱 TR: ${ventas.filter(v => v.metodo_pago === 'Transferencia').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
+                  </View>
+
                   <TouchableOpacity
                     style={styles.btnWhatsApp}
                     onPress={enviarReporteWhatsApp}
@@ -268,9 +291,14 @@ export default function HistorialVentas() {
             renderItem={({ item }) => (
               <View style={styles.ventaItem}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.nombreProducto}>
-                    {item.nombre_producto}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.nombreProducto}>{item.nombre_producto}</Text>
+                    <View style={[styles.badgeMetodo, { backgroundColor: item.metodo_pago === 'Efectivo' ? '#E1F5FE' : '#F3E5F5' }]}>
+                        <Text style={[styles.badgeTexto, { color: item.metodo_pago === 'Efectivo' ? '#0288D1' : '#7B1FA2' }]}>
+                            {item.metodo_pago === 'Efectivo' ? '💵 EF' : '📱 TR'}
+                        </Text>
+                    </View>
+                  </View>
                   <Text style={styles.textoToppings}>
                     {item.toppings_texto}
                   </Text>
@@ -323,6 +351,8 @@ const styles = StyleSheet.create({
   },
   resumenLabel: { color: "rgba(255,255,255,0.8)", fontSize: 14 },
   resumenMonto: { color: "white", fontSize: 32, fontWeight: "bold" },
+  desglosePagos: { flexDirection: 'row', gap: 15, marginTop: 5 },
+  desgloseTexto: { color: 'white', fontSize: 12, fontWeight: '500' },
   ventaItem: {
     backgroundColor: "white",
     padding: 16,
@@ -333,6 +363,16 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   nombreProducto: { fontSize: 16, fontWeight: "bold" },
+  badgeMetodo: {
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  badgeTexto: {
+    fontSize: 9,
+    fontWeight: 'bold',
+  },
   textoToppings: { fontSize: 13, color: "#666" },
   hora: { fontSize: 11, color: "#AAA" },
   precioVenta: { fontSize: 17, fontWeight: "bold", color: "#28a745" },
@@ -405,10 +445,5 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 10,
     color: "#333",
-  },
-  datePickerStyle: {
-    height: 350,
-    width: "100%",
-    alignSelf: "center",
   },
 });

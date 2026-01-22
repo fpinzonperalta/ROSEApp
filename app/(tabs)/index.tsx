@@ -8,7 +8,7 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Platform, // Importante para detectar la plataforma
+  Platform,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { supabase } from "../../supabaseConfig";
@@ -17,7 +17,7 @@ interface Topping {
   id: number;
   nombre: string;
   precio: number;
-  esta_activo:string;
+  esta_activo: string;
 }
 
 interface Producto {
@@ -26,11 +26,20 @@ interface Producto {
   precio: number;
   stock: number;
   tiene_toppings?: boolean;
-  esta_activo:string;
+  esta_activo: string;
+}
+
+interface VentaFormateada {
+  id: number;
+  total: number;
+  created_at: string;
+  nombre_producto: string;
+  toppings_texto: string;
+  metodo_pago: string; // Nuevo campo
 }
 
 export default function App() {
-  const [ventasDelDia, setVentasDelDia] = useState([]);
+  const [ventasDelDia, setVentasDelDia] = useState<VentaFormateada[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [productoActual, setProductoActual] = useState<Producto | null>(null);
   const [toppingsSeleccionados, setToppingsSeleccionados] = useState<Topping[]>(
@@ -40,7 +49,11 @@ export default function App() {
   const [cargando, setCargando] = useState(true);
   const [toppingsBD, setToppingsBD] = useState<Topping[]>([]);
 
-  // 1. VALIDACIÓN DE PLATAFORMA (Solo Móvil)
+  // ESTADO PARA MÉTODO DE PAGO
+  const [metodoPago, setMetodoPago] = useState<"Efectivo" | "Transferencia">(
+    "Efectivo",
+  );
+
   if (Platform.OS === "web") {
     return (
       <View style={styles.webContainer}>
@@ -84,7 +97,7 @@ export default function App() {
       .from("ventas")
       .select(
         `
-        id, total, created_at,
+        id, total, created_at, metodo_pago,
         productos ( nombre ),
         ventas_toppings ( toppings ( nombre ) )
       `,
@@ -111,6 +124,7 @@ export default function App() {
           id: v.id,
           total: v.total,
           created_at: v.created_at,
+          metodo_pago: v.metodo_pago || "Efectivo",
           nombre_producto: nombreP || "Producto no encontrado",
           toppings_texto: toppingsArr?.join(", ") || "",
         };
@@ -139,7 +153,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("productos")
       .select("*")
-      .eq('esta_activo','si')
+      .eq("esta_activo", "si")
       .order("nombre", { ascending: true });
     if (!error) setProductos(data);
     setCargando(false);
@@ -149,7 +163,7 @@ export default function App() {
     const { data, error } = await supabase
       .from("toppings")
       .select("*")
-      .eq('esta_activo','si')
+      .eq("esta_activo", "si")
       .order("nombre", { ascending: true });
     if (!error) setToppingsBD(data);
   };
@@ -165,12 +179,16 @@ export default function App() {
   };
 
   const seleccionarProducto = (prod: Producto) => {
+    setProductoActual(prod);
+    setToppingsSeleccionados([]);
+    setMetodoPago("Efectivo"); // Resetear pago al abrir
     if (prod.tiene_toppings === true) {
-      setProductoActual(prod);
-      setToppingsSeleccionados([]);
       setModalVisible(true);
     } else {
-      finalizarVenta(prod, []);
+      // Si no tiene toppings, igual necesitamos saber el método de pago.
+      // Podrías abrir un modal simplificado o usar un Alert.
+      // Por simplicidad en este negocio, abriremos el modal siempre para elegir el pago:
+      setModalVisible(true);
     }
   };
 
@@ -190,7 +208,13 @@ export default function App() {
 
     const { data: ventaInsertada, error } = await supabase
       .from("ventas")
-      .insert([{ producto_id: producto.id, total: totalFinal }])
+      .insert([
+        {
+          producto_id: producto.id,
+          total: totalFinal,
+          metodo_pago: metodoPago, // SE ENVÍA EL MÉTODO DE PAGO
+        },
+      ])
       .select();
 
     if (error) return Alert.alert("Error", error.message);
@@ -204,7 +228,7 @@ export default function App() {
       await supabase.from("ventas_toppings").insert(filasToppings);
     }
 
-    consultarVentasHoy(); // Refrescamos lista
+    consultarVentasHoy();
     setModalVisible(false);
     setToppingsSeleccionados([]);
   };
@@ -253,12 +277,21 @@ export default function App() {
                   + {item.toppings_texto}
                 </Text>
               ) : null}
-              <Text style={{ fontSize: 10, color: "#999", marginTop: 4 }}>
-                {new Date(item.created_at).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </Text>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 4,
+                }}
+              >
+                <Text style={styles.metodoTag}>{item.metodo_pago}</Text>
+                <Text style={{ fontSize: 10, color: "#999", marginLeft: 8 }}>
+                  {new Date(item.created_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+              </View>
             </View>
             <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
               <Text
@@ -281,45 +314,100 @@ export default function App() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
-              Añadir Toppings a {productoActual?.nombre}
+              {productoActual?.tiene_toppings
+                ? `Añadir Toppings a ${productoActual?.nombre}`
+                : `Confirmar Venta: ${productoActual?.nombre}`}
             </Text>
-            <ScrollView>
-              {toppingsBD
-                .filter(
-                  (t) =>
-                    !(
-                      productoActual?.nombre === "Malteadas" &&
-                      t.nombre === "Helado"
-                    ),
-                )
-                .map((t) => {
-                  const isSelected = toppingsSeleccionados.find(
-                    (sel) => sel.id === t.id,
-                  );
-                  return (
-                    <TouchableOpacity
-                      key={t.id}
-                      style={[
-                        styles.toppingItem,
-                        isSelected && styles.toppingSelected,
-                      ]}
-                      onPress={() => toggleTopping(t)}
-                    >
-                      <Text>
-                        {t.nombre} (+${t.precio})
-                      </Text>
-                      <Text>{isSelected ? "✅" : "⬜"}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-            </ScrollView>
+
+            {productoActual?.tiene_toppings && (
+              <ScrollView style={{ maxHeight: 300 }}>
+                {toppingsBD
+                  .filter(
+                    (t) =>
+                      !(
+                        productoActual?.nombre === "Malteadas" &&
+                        t.nombre === "Helado"
+                      ),
+                  )
+                  .map((t) => {
+                    const isSelected = toppingsSeleccionados.find(
+                      (sel) => sel.id === t.id,
+                    );
+                    return (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[
+                          styles.toppingItem,
+                          isSelected && styles.toppingSelected,
+                        ]}
+                        onPress={() => toggleTopping(t)}
+                      >
+                        <Text>
+                          {t.nombre} (+${t.precio})
+                        </Text>
+                        <Text>{isSelected ? "✅" : "⬜"}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+              </ScrollView>
+            )}
+
+            {/* SECCIÓN DE MÉTODO DE PAGO */}
+            <View style={styles.paymentSection}>
+              <Text style={styles.paymentLabel}>Método de Pago:</Text>
+              <View style={styles.paymentRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.payOption,
+                    metodoPago === "Efectivo" && styles.payOptionActive,
+                  ]}
+                  onPress={() => setMetodoPago("Efectivo")}
+                >
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      metodoPago === "Efectivo" && styles.payOptionTextActive,
+                    ]}
+                  >
+                    💵 Efectivo
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.payOption,
+                    metodoPago === "Transferencia" && styles.payOptionActive,
+                  ]}
+                  onPress={() => setMetodoPago("Transferencia")}
+                >
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      metodoPago === "Transferencia" &&
+                        styles.payOptionTextActive,
+                    ]}
+                  >
+                    📱 Transf.
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
             <TouchableOpacity
               style={styles.btnConfirmar}
               onPress={() =>
                 finalizarVenta(productoActual, toppingsSeleccionados)
               }
             >
-              <Text style={styles.btnConfirmarText}>Confirmar Venta</Text>
+              <Text style={styles.btnConfirmarText}>Finalizar Venta</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={{ marginTop: 15 }}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={{ textAlign: "center", color: "#666" }}>
+                Cancelar
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -387,7 +475,7 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
     borderRadius: 20,
     padding: 20,
-    maxHeight: "70%",
+    maxHeight: "80%",
   },
   modalTitle: {
     fontSize: 18,
@@ -439,4 +527,35 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   stockText: { fontSize: 10, color: "#e0e0e0", marginTop: 2 },
+  // NUEVOS ESTILOS
+  paymentSection: {
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+    paddingTop: 15,
+  },
+  paymentLabel: { fontWeight: "bold", marginBottom: 10, color: "#333" },
+  paymentRow: { flexDirection: "row", justifyContent: "space-between" },
+  payOption: {
+    flex: 1,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    marginHorizontal: 5,
+    alignItems: "center",
+  },
+  payOptionActive: { backgroundColor: "#007AFF", borderColor: "#007AFF" },
+  payOptionText: { color: "#333", fontWeight: "500" },
+  payOptionTextActive: { color: "white" },
+  metodoTag: {
+    fontSize: 9,
+    backgroundColor: "#eee",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    color: "#666",
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
 });
