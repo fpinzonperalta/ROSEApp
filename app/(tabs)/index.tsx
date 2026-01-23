@@ -27,6 +27,7 @@ interface Producto {
   stock: number;
   tiene_toppings?: boolean;
   esta_activo: string;
+  primer_topping?:boolean;
 }
 
 interface VentaFormateada {
@@ -201,9 +202,7 @@ export default function App() {
       toppingsParaDescuento.length > 0
         ? Math.max(...toppingsParaDescuento.map((t) => t.precio))
         : 0;
-    const esFresas = producto.nombre.toLowerCase().includes("fresas");
-    const descuento =
-      esFresas && toppingsParaDescuento.length > 0 ? precioMasCaro : 0;
+    const descuento = producto.primer_topping && toppingsParaDescuento.length > 0 ? precioMasCaro : 0;
     const totalFinal = producto.precio + costoToppingsBase - descuento;
 
     const { data: ventaInsertada, error } = await supabase
