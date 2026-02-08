@@ -12,13 +12,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
-
-// Componente nativo (solo funcionará en iOS/Android)
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
-
-// Configuración de Supabase
 import { supabase } from "../../supabaseConfig";
 
 interface Venta {
@@ -27,7 +23,8 @@ interface Venta {
   created_at: string;
   nombre_producto: string;
   toppings_texto: string;
-  metodo_pago: string; // <-- Nuevo campo añadido
+  metodo_pago: string;
+  es_domicilio: boolean; // <-- Nuevo campo
 }
 
 export default function HistorialVentas() {
@@ -36,7 +33,6 @@ export default function HistorialVentas() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [cargando, setCargando] = useState(false);
 
-  // Consultar ventas cada vez que la pantalla gane el foco o cambie la fecha
   useFocusEffect(
     useCallback(() => {
       consultarVentas(fechaFiltro);
@@ -54,16 +50,15 @@ export default function HistorialVentas() {
     try {
       const { data, error } = await supabase
         .from("ventas")
-        .select(
-          `
+        .select(`
           id, 
           total, 
           created_at,
           metodo_pago,
+          es_domicilio,
           productos ( nombre ),
           ventas_toppings ( toppings ( nombre ) )
-        `,
-        )
+        `)
         .gte("created_at", inicio.toISOString())
         .lte("created_at", fin.toISOString())
         .order("created_at", { ascending: false });
@@ -75,7 +70,8 @@ export default function HistorialVentas() {
           id: v.id,
           total: v.total,
           created_at: v.created_at,
-          metodo_pago: v.metodo_pago || "Efectivo", // Valor por defecto
+          metodo_pago: v.metodo_pago || "Efectivo",
+          es_domicilio: v.es_domicilio || false,
           nombre_producto: v.productos?.nombre || "Producto no encontrado",
           toppings_texto:
             v.ventas_toppings
@@ -105,28 +101,23 @@ export default function HistorialVentas() {
       year: "numeric",
     });
 
-    const totalRecaudado = ventas
-      .reduce((acc, v) => acc + v.total, 0)
-      .toLocaleString();
+    const totalRecaudado = ventas.reduce((acc, v) => acc + v.total, 0);
+    const totalEfectivo = ventas.filter(v => v.metodo_pago === "Efectivo").reduce((acc, v) => acc + v.total, 0);
+    const totalTransferencia = ventas.filter(v => v.metodo_pago === "Transferencia").reduce((acc, v) => acc + v.total, 0);
     
-    // Cálculo por método de pago
-    const totalEfectivo = ventas
-      .filter(v => v.metodo_pago === "Efectivo")
-      .reduce((acc, v) => acc + v.total, 0)
-      .toLocaleString();
-    
-    const totalTransferencia = ventas
-      .filter(v => v.metodo_pago === "Transferencia")
-      .reduce((acc, v) => acc + v.total, 0)
-      .toLocaleString();
+    // Cálculos de domicilio
+    const ventasDomi = ventas.filter(v => v.es_domicilio);
+    const totalDomi = ventasDomi.reduce((acc, v) => acc + v.total, 0);
 
     const insumos = obtenerResumenToppings();
 
     let mensaje = `*📊 REPORTE DE VENTAS - ${fechaFormateada}*\n\n`;
-    mensaje += `*💰 TOTAL RECAUDADO: $${totalRecaudado}*\n`;
-    mensaje += `💵 Efectivo: $${totalEfectivo}\n`;
-    mensaje += `📱 Transferencia: $${totalTransferencia}\n\n`;
-    mensaje += `*🍦 Ventas realizadas:* ${ventas.length}\n\n`;
+    mensaje += `*💰 TOTAL RECAUDADO: $${totalRecaudado.toLocaleString()}*\n`;
+    mensaje += `--------------------------\n`;
+    mensaje += `💵 Efectivo: $${totalEfectivo.toLocaleString()}\n`;
+    mensaje += `📱 Transferencia: $${totalTransferencia.toLocaleString()}\n`;
+    mensaje += `🛵 Domicilios: ${ventasDomi.length} ($${totalDomi.toLocaleString()})\n\n`;
+    mensaje += `*🍦 Ventas totales:* ${ventas.length}\n\n`;
     mensaje += `*📦 RESUMEN DE INSUMOS:*\n`;
     insumos.forEach((item) => {
       mensaje += `- ${item.nombre}: x${item.cantidad}\n`;
@@ -165,16 +156,8 @@ export default function HistorialVentas() {
           <input
             type="date"
             value={fechaFiltro.toISOString().split("T")[0]}
-            onChange={(e) =>
-              setFechaFiltro(new Date(e.target.value + "T00:00:00"))
-            }
-            style={{
-              padding: "8px",
-              borderRadius: "8px",
-              border: "1px solid #007AFF",
-              fontSize: "14px",
-              color: "#007AFF",
-            }}
+            onChange={(e) => setFechaFiltro(new Date(e.target.value + "T00:00:00"))}
+            style={{ padding: "8px", borderRadius: "8px", border: "1px solid #007AFF" }}
           />
         </View>
       );
@@ -193,10 +176,7 @@ export default function HistorialVentas() {
               maximumDate={new Date()}
               locale="es-ES"
             />
-            <TouchableOpacity
-              style={styles.btnAceptar}
-              onPress={() => setShowDatePicker(false)}
-            >
+            <TouchableOpacity style={styles.btnAceptar} onPress={() => setShowDatePicker(false)}>
               <Text style={styles.btnAceptarTexto}>Confirmar</Text>
             </TouchableOpacity>
           </View>
@@ -212,18 +192,11 @@ export default function HistorialVentas() {
           <View>
             <Text style={styles.titulo}>Reportería</Text>
             <Text style={styles.subtitulo}>
-              {fechaFiltro.toLocaleDateString("es-CO", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
+              {fechaFiltro.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
             </Text>
           </View>
           {Platform.OS !== "web" && (
-            <TouchableOpacity
-              style={styles.btnCalendario}
-              onPress={() => setShowDatePicker(true)}
-            >
+            <TouchableOpacity style={styles.btnCalendario} onPress={() => setShowDatePicker(true)}>
               <Text style={{ fontSize: 24 }}>📅</Text>
             </TouchableOpacity>
           )}
@@ -232,11 +205,7 @@ export default function HistorialVentas() {
         {Platform.OS === "web" && renderDatePicker()}
 
         {cargando ? (
-          <ActivityIndicator
-            size="large"
-            color="#007AFF"
-            style={{ marginTop: 50 }}
-          />
+          <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 50 }} />
         ) : (
           <FlatList
             data={ventas}
@@ -246,41 +215,26 @@ export default function HistorialVentas() {
                 <View style={styles.resumenCard}>
                   <Text style={styles.resumenLabel}>Total Recaudado</Text>
                   <Text style={styles.resumenMonto}>
-                    $
-                    {ventas
-                      .reduce((acc, v) => acc + v.total, 0)
-                      .toLocaleString("es-ES")}
+                    ${ventas.reduce((acc, v) => acc + v.total, 0).toLocaleString("es-ES")}
                   </Text>
                   
-                  {/* Desglose rápido en la tarjeta de resumen */}
                   <View style={styles.desglosePagos}>
                     <Text style={styles.desgloseTexto}>💵 EF: ${ventas.filter(v => v.metodo_pago === 'Efectivo').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
                     <Text style={styles.desgloseTexto}>📱 TR: ${ventas.filter(v => v.metodo_pago === 'Transferencia').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.btnWhatsApp}
-                    onPress={enviarReporteWhatsApp}
-                  >
-                    <Text style={styles.btnWhatsAppTexto}>
-                      🟢 Enviar Reporte WhatsApp
-                    </Text>
+                  <TouchableOpacity style={styles.btnWhatsApp} onPress={enviarReporteWhatsApp}>
+                    <Text style={styles.btnWhatsAppTexto}>🟢 Enviar Reporte WhatsApp</Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Resumen de Insumos */}
                 {obtenerResumenToppings().length > 0 && (
                   <View style={styles.insumosContainer}>
                     <Text style={styles.insumosTitulo}>Insumos Usados</Text>
                     <View style={styles.chipsContainer}>
                       {obtenerResumenToppings().map((item, i) => (
                         <View key={i} style={styles.chip}>
-                          <Text style={styles.chipTexto}>
-                            {item.nombre}{" "}
-                            <Text style={styles.chipCantidad}>
-                              x{item.cantidad}
-                            </Text>
-                          </Text>
+                          <Text style={styles.chipTexto}>{item.nombre} <Text style={styles.chipCantidad}>x{item.cantidad}</Text></Text>
                         </View>
                       ))}
                     </View>
@@ -291,32 +245,32 @@ export default function HistorialVentas() {
             renderItem={({ item }) => (
               <View style={styles.ventaItem}>
                 <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
                     <Text style={styles.nombreProducto}>{item.nombre_producto}</Text>
+                    
+                    {/* Badge Método de Pago */}
                     <View style={[styles.badgeMetodo, { backgroundColor: item.metodo_pago === 'Efectivo' ? '#E1F5FE' : '#F3E5F5' }]}>
                         <Text style={[styles.badgeTexto, { color: item.metodo_pago === 'Efectivo' ? '#0288D1' : '#7B1FA2' }]}>
                             {item.metodo_pago === 'Efectivo' ? '💵 EF' : '📱 TR'}
                         </Text>
                     </View>
+
+                    {/* Badge Domicilio (NUEVO) */}
+                    {item.es_domicilio && (
+                      <View style={[styles.badgeMetodo, styles.badgeDomi]}>
+                        <Text style={styles.badgeTextoDomi}>🛵 DOMI</Text>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.textoToppings}>
-                    {item.toppings_texto}
-                  </Text>
+                  <Text style={styles.textoToppings}>{item.toppings_texto}</Text>
                   <Text style={styles.hora}>
-                    {new Date(item.created_at).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                   </Text>
                 </View>
-                <Text style={styles.precioVenta}>
-                  ${item.total.toLocaleString("es-ES")}
-                </Text>
+                <Text style={styles.precioVenta}>${item.total.toLocaleString("es-ES")}</Text>
               </View>
             )}
-            ListEmptyComponent={
-              <Text style={styles.listaVacia}>No hay ventas registradas.</Text>
-            }
+            ListEmptyComponent={<Text style={styles.listaVacia}>No hay ventas registradas.</Text>}
           />
         )}
         {Platform.OS !== "web" && renderDatePicker()}
@@ -328,122 +282,38 @@ export default function HistorialVentas() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#F8F9FA" },
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 20,
-  },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
   titulo: { fontSize: 26, fontWeight: "bold", color: "#1A1A1A" },
   subtitulo: { fontSize: 14, color: "#666", textTransform: "capitalize" },
-  btnCalendario: {
-    backgroundColor: "white",
-    padding: 12,
-    borderRadius: 15,
-    elevation: 3,
-  },
-  resumenCard: {
-    backgroundColor: "#007AFF",
-    padding: 20,
-    borderRadius: 20,
-    marginBottom: 20,
-    alignItems: "center",
-  },
+  btnCalendario: { backgroundColor: "white", padding: 12, borderRadius: 15, elevation: 3 },
+  resumenCard: { backgroundColor: "#007AFF", padding: 20, borderRadius: 20, marginBottom: 20, alignItems: "center" },
   resumenLabel: { color: "rgba(255,255,255,0.8)", fontSize: 14 },
   resumenMonto: { color: "white", fontSize: 32, fontWeight: "bold" },
   desglosePagos: { flexDirection: 'row', gap: 15, marginTop: 5 },
   desgloseTexto: { color: 'white', fontSize: 12, fontWeight: '500' },
-  ventaItem: {
-    backgroundColor: "white",
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    elevation: 2,
-  },
+  ventaItem: { backgroundColor: "white", padding: 16, borderRadius: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", elevation: 2 },
   nombreProducto: { fontSize: 16, fontWeight: "bold" },
-  badgeMetodo: {
-    marginLeft: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  badgeTexto: {
-    fontSize: 9,
-    fontWeight: 'bold',
-  },
+  badgeMetodo: { marginLeft: 8, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  badgeDomi: { backgroundColor: '#FFF7E6', borderColor: '#FFD591', borderWidth: 0.5 },
+  badgeTexto: { fontSize: 9, fontWeight: 'bold' },
+  badgeTextoDomi: { fontSize: 9, fontWeight: 'bold', color: '#D48806' },
   textoToppings: { fontSize: 13, color: "#666" },
   hora: { fontSize: 11, color: "#AAA" },
   precioVenta: { fontSize: 17, fontWeight: "bold", color: "#28a745" },
-  webPickerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 15,
-    backgroundColor: "#fff",
-    padding: 10,
-    borderRadius: 10,
-  },
+  webPickerContainer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 15, backgroundColor: "#fff", padding: 10, borderRadius: 10 },
   webLabel: { fontWeight: "bold", color: "#555" },
-  modalOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  btnAceptar: {
-    backgroundColor: "#007AFF",
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-  },
+  modalOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+  btnAceptar: { backgroundColor: "#007AFF", padding: 15, borderRadius: 10, marginTop: 10 },
   btnAceptarTexto: { color: "white", textAlign: "center", fontWeight: "bold" },
-  insumosContainer: {
-    backgroundColor: "white",
-    padding: 15,
-    borderRadius: 20,
-    marginBottom: 20,
-  },
-  insumosTitulo: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#555",
-    marginBottom: 10,
-    textTransform: "uppercase",
-  },
+  insumosContainer: { backgroundColor: "white", padding: 15, borderRadius: 20, marginBottom: 20 },
+  insumosTitulo: { fontSize: 12, fontWeight: "800", color: "#555", marginBottom: 10, textTransform: "uppercase" },
   chipsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: {
-    backgroundColor: "#F0F2F5",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-  },
+  chip: { backgroundColor: "#F0F2F5", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   chipTexto: { fontSize: 12 },
   chipCantidad: { fontWeight: "bold", color: "#007AFF" },
-  btnWhatsApp: {
-    backgroundColor: "#25D366",
-    padding: 10,
-    borderRadius: 10,
-    marginTop: 15,
-  },
+  btnWhatsApp: { backgroundColor: "#25D366", padding: 12, borderRadius: 12, marginTop: 15, width: '100%', alignItems: 'center' },
   btnWhatsAppTexto: { color: "white", fontWeight: "bold" },
   listaVacia: { textAlign: "center", marginTop: 50, color: "#999" },
-  pickerContainer: {
-    backgroundColor: "white",
-    width: "90%",
-    borderRadius: 20,
-    padding: 20,
-  },
-  pickerTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 10,
-    color: "#333",
-  },
+  pickerContainer: { backgroundColor: "white", width: "90%", borderRadius: 20, padding: 20 },
+  pickerTitle: { fontSize: 18, fontWeight: "bold", textAlign: "center", marginBottom: 10, color: "#333" },
 });
