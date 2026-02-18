@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { supabase } from "../../supabaseConfig";
@@ -37,21 +38,24 @@ interface VentaFormateada {
   nombre_producto: string;
   toppings_texto: string;
   metodo_pago: string;
-  es_domicilio: boolean; // Agregado a la interfaz
+  es_domicilio: boolean;
 }
 
 export default function App() {
   const [ventasDelDia, setVentasDelDia] = useState<VentaFormateada[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [productoActual, setProductoActual] = useState<Producto | null>(null);
-  const [toppingsSeleccionados, setToppingsSeleccionados] = useState<Topping[]>([]);
+  const [toppingsSeleccionados, setToppingsSeleccionados] = useState<Topping[]>(
+    [],
+  );
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cargando, setCargando] = useState(true);
   const [toppingsBD, setToppingsBD] = useState<Topping[]>([]);
 
-  // ESTADOS DE VENTA
-  const [metodoPago, setMetodoPago] = useState<"Efectivo" | "Transferencia">("Efectivo");
-  const [esDomicilio, setEsDomicilio] = useState<boolean>(false); // Nuevo estado
+  const [metodoPago, setMetodoPago] = useState<"Efectivo" | "Transferencia">(
+    "Efectivo",
+  );
+  const [esDomicilio, setEsDomicilio] = useState<boolean>(false);
 
   if (Platform.OS === "web") {
     return (
@@ -75,16 +79,32 @@ export default function App() {
 
   const consultarVentasHoy = async () => {
     const ahora = new Date();
-    const inicio = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0);
-    const fin = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59);
+    const inicio = new Date(
+      ahora.getFullYear(),
+      ahora.getMonth(),
+      ahora.getDate(),
+      0,
+      0,
+      0,
+    );
+    const fin = new Date(
+      ahora.getFullYear(),
+      ahora.getMonth(),
+      ahora.getDate(),
+      23,
+      59,
+      59,
+    );
 
     const { data, error } = await supabase
       .from("ventas")
-      .select(`
+      .select(
+        `
         id, total, created_at, metodo_pago, es_domicilio,
         productos ( nombre ),
         ventas_toppings ( toppings ( nombre ) )
-      `)
+      `,
+      )
       .gte("created_at", inicio.toISOString())
       .lte("created_at", fin.toISOString())
       .order("created_at", { ascending: false });
@@ -97,7 +117,9 @@ export default function App() {
 
         const toppingsArr = v.ventas_toppings
           ?.map((vt: any) =>
-            Array.isArray(vt.toppings) ? vt.toppings[0]?.nombre : vt.toppings?.nombre,
+            Array.isArray(vt.toppings)
+              ? vt.toppings[0]?.nombre
+              : vt.toppings?.nombre,
           )
           .filter(Boolean);
 
@@ -106,7 +128,7 @@ export default function App() {
           total: v.total,
           created_at: v.created_at,
           metodo_pago: v.metodo_pago || "Efectivo",
-          es_domicilio: v.es_domicilio || false, // Mapeo del nuevo campo
+          es_domicilio: v.es_domicilio || false,
           nombre_producto: nombreP || "Producto no encontrado",
           toppings_texto: toppingsArr?.join(", ") || "",
         };
@@ -152,7 +174,9 @@ export default function App() {
 
   const toggleTopping = (topping: Topping) => {
     if (toppingsSeleccionados.find((t) => t.id === topping.id)) {
-      setToppingsSeleccionados(toppingsSeleccionados.filter((t) => t.id !== topping.id));
+      setToppingsSeleccionados(
+        toppingsSeleccionados.filter((t) => t.id !== topping.id),
+      );
     } else {
       setToppingsSeleccionados([...toppingsSeleccionados, topping]);
     }
@@ -162,7 +186,7 @@ export default function App() {
     setProductoActual(prod);
     setToppingsSeleccionados([]);
     setMetodoPago("Efectivo");
-    setEsDomicilio(false); // Resetear domicilio al abrir
+    setEsDomicilio(false);
     setModalVisible(true);
   };
 
@@ -175,7 +199,10 @@ export default function App() {
       toppingsParaDescuento.length > 0
         ? Math.max(...toppingsParaDescuento.map((t) => t.precio))
         : 0;
-    const descuento = producto.primer_topping && toppingsParaDescuento.length > 0 ? precioMasCaro : 0;
+    const descuento =
+      producto.primer_topping && toppingsParaDescuento.length > 0
+        ? precioMasCaro
+        : 0;
     const totalFinal = producto.precio + costoToppingsBase - descuento;
 
     const { data: ventaInsertada, error } = await supabase
@@ -185,7 +212,7 @@ export default function App() {
           producto_id: producto.id,
           total: totalFinal,
           metodo_pago: metodoPago,
-          es_domicilio: esDomicilio, // SE ENVÍA EL CAMPO BOOLEANO
+          es_domicilio: esDomicilio,
         },
       ])
       .select();
@@ -208,39 +235,44 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>ROSE</Text>
-      <Text style={styles.subtitle}>Selecciona un Producto</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
+        <Text style={styles.title}>ROSE</Text>
 
-      <View style={styles.menu}>
-        {cargando ? (
-          <Text>Cargando menú...</Text>
-        ) : (
-          productos.map((prod) => (
-            <TouchableOpacity
-              key={prod.id}
-              style={styles.button}
-              onPress={() => seleccionarProducto(prod)}
-            >
-              <Text style={styles.buttonText}>{prod.nombre}</Text>
-              <Text style={styles.priceText}>
-                ${prod.precio.toLocaleString("es-ES")}
-              </Text>
-              <Text style={styles.stockText}>Stock: {prod.stock}</Text>
-            </TouchableOpacity>
-          ))
-        )}
-      </View>
+        <Text style={styles.subtitle}>Selecciona un Producto</Text>
+        <View style={styles.menu}>
+          {cargando ? (
+            <ActivityIndicator color="#007AFF" />
+          ) : (
+            productos.map((prod) => (
+              <TouchableOpacity
+                key={prod.id}
+                style={styles.button}
+                onPress={() => seleccionarProducto(prod)}
+              >
+                <Text style={styles.buttonText}>{prod.nombre}</Text>
+                <Text style={styles.priceText}>
+                  ${prod.precio.toLocaleString("es-ES")}
+                </Text>
+                <Text style={styles.stockText}>Stock: {prod.stock}</Text>
+              </TouchableOpacity>
+            ))
+          )}
+        </View>
 
-      <Text style={styles.subtitle}>
-        Ventas de Hoy ($
-        {ventasDelDia.reduce((a, b) => a + b.total, 0).toLocaleString("es-ES")})
-      </Text>
+        <Text style={styles.subtitle}>
+          Ventas de Hoy ($
+          {ventasDelDia
+            .reduce((a, b) => a + b.total, 0)
+            .toLocaleString("es-ES")}
+          )
+        </Text>
 
-      <FlatList
-        data={ventasDelDia}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.ventaItem}>
+        {/* Usamos un View + Map en lugar de FlatList dentro de ScrollView para evitar advertencias de VirtualizedList */}
+        {ventasDelDia.map((item) => (
+          <View key={item.id} style={styles.ventaItem}>
             <View style={{ flex: 1 }}>
               <Text style={{ fontWeight: "bold", fontSize: 16 }}>
                 {item.nombre_producto}
@@ -250,14 +282,19 @@ export default function App() {
                   + {item.toppings_texto}
                 </Text>
               ) : null}
-              <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  marginTop: 4,
+                }}
+              >
                 <Text style={styles.metodoTag}>{item.metodo_pago}</Text>
-                
-                {/* INDICADOR DE DOMICILIO EN LA LISTA */}
                 {item.es_domicilio && (
-                  <Text style={[styles.metodoTag, styles.domiTag]}>🛵 Domicilio</Text>
+                  <Text style={[styles.metodoTag, styles.domiTag]}>
+                    🛵 Domicilio
+                  </Text>
                 )}
-
                 <Text style={{ fontSize: 10, color: "#999", marginLeft: 8 }}>
                   {new Date(item.created_at).toLocaleTimeString([], {
                     hour: "2-digit",
@@ -267,7 +304,9 @@ export default function App() {
               </View>
             </View>
             <View style={{ alignItems: "flex-end", justifyContent: "center" }}>
-              <Text style={{ fontWeight: "bold", color: "#28a745", fontSize: 16 }}>
+              <Text
+                style={{ fontWeight: "bold", color: "#28a745", fontSize: 16 }}
+              >
                 ${item.total.toLocaleString("es-ES")}
               </Text>
               <TouchableOpacity
@@ -278,9 +317,10 @@ export default function App() {
               </TouchableOpacity>
             </View>
           </View>
-        )}
-      />
+        ))}
+      </ScrollView>
 
+      {/* MODAL */}
       <Modal visible={modalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -323,46 +363,77 @@ export default function App() {
               </ScrollView>
             )}
 
-            {/* SECCIÓN PREGUNTA DOMICILIO */}
             <View style={styles.deliverySection}>
               <Text style={styles.paymentLabel}>¿Es para domicilio?</Text>
               <View style={styles.paymentRow}>
                 <TouchableOpacity
-                  style={[styles.payOption, !esDomicilio && styles.payOptionActive]}
+                  style={[
+                    styles.payOption,
+                    !esDomicilio && styles.payOptionActive,
+                  ]}
                   onPress={() => setEsDomicilio(false)}
                 >
-                  <Text style={[styles.payOptionText, !esDomicilio && styles.payOptionTextActive]}>
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      !esDomicilio && styles.payOptionTextActive,
+                    ]}
+                  >
                     🏠 Local
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.payOption, esDomicilio && styles.payOptionActiveDomi]}
+                  style={[
+                    styles.payOption,
+                    esDomicilio && styles.payOptionActiveDomi,
+                  ]}
                   onPress={() => setEsDomicilio(true)}
                 >
-                  <Text style={[styles.payOptionText, esDomicilio && styles.payOptionTextActive]}>
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      esDomicilio && styles.payOptionTextActive,
+                    ]}
+                  >
                     🛵 Domicilio
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* SECCIÓN MÉTODO DE PAGO */}
             <View style={styles.paymentSection}>
               <Text style={styles.paymentLabel}>Método de Pago:</Text>
               <View style={styles.paymentRow}>
                 <TouchableOpacity
-                  style={[styles.payOption, metodoPago === "Efectivo" && styles.payOptionActive]}
+                  style={[
+                    styles.payOption,
+                    metodoPago === "Efectivo" && styles.payOptionActive,
+                  ]}
                   onPress={() => setMetodoPago("Efectivo")}
                 >
-                  <Text style={[styles.payOptionText, metodoPago === "Efectivo" && styles.payOptionTextActive]}>
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      metodoPago === "Efectivo" && styles.payOptionTextActive,
+                    ]}
+                  >
                     💵 Efectivo
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.payOption, metodoPago === "Transferencia" && styles.payOptionActive]}
+                  style={[
+                    styles.payOption,
+                    metodoPago === "Transferencia" && styles.payOptionActive,
+                  ]}
                   onPress={() => setMetodoPago("Transferencia")}
                 >
-                  <Text style={[styles.payOptionText, metodoPago === "Transferencia" && styles.payOptionTextActive]}>
+                  <Text
+                    style={[
+                      styles.payOptionText,
+                      metodoPago === "Transferencia" &&
+                        styles.payOptionTextActive,
+                    ]}
+                  >
                     📱 Transf.
                   </Text>
                 </TouchableOpacity>
@@ -371,7 +442,9 @@ export default function App() {
 
             <TouchableOpacity
               style={styles.btnConfirmar}
-              onPress={() => finalizarVenta(productoActual, toppingsSeleccionados)}
+              onPress={() =>
+                finalizarVenta(productoActual, toppingsSeleccionados)
+              }
             >
               <Text style={styles.btnConfirmarText}>Finalizar Venta</Text>
             </TouchableOpacity>
@@ -380,7 +453,9 @@ export default function App() {
               style={{ marginTop: 15 }}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={{ textAlign: "center", color: "#666" }}>Cancelar</Text>
+              <Text style={{ textAlign: "center", color: "#666" }}>
+                Cancelar
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -390,35 +465,157 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#f5f5f5", paddingTop: 60 },
-  webContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 40, backgroundColor: "#fff" },
-  webText: { textAlign: "center", fontSize: 18, color: "#666", marginTop: 20, fontWeight: "500" },
-  title: { fontSize: 26, fontWeight: "bold", textAlign: "center", marginBottom: 20 },
-  subtitle: { fontSize: 18, fontWeight: "600", marginBottom: 10, marginTop: 10 },
-  menu: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  button: { backgroundColor: "#007AFF", width: "48%", padding: 15, borderRadius: 12, marginBottom: 10, alignItems: "center" },
+  container: {
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    paddingTop: 60,
+    paddingHorizontal: 20,
+  },
+  webContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
+    backgroundColor: "#fff",
+  },
+  webText: {
+    textAlign: "center",
+    fontSize: 18,
+    color: "#666",
+    marginTop: 20,
+    fontWeight: "500",
+  },
+  title: {
+    fontSize: 26,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  subtitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 10,
+    marginTop: 10,
+  },
+  menu: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+  },
+  button: {
+    backgroundColor: "#007AFF",
+    width: "48%",
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 10,
+    alignItems: "center",
+  },
   buttonText: { color: "white", fontWeight: "bold", fontSize: 14 },
   priceText: { color: "#e0e0e0", fontSize: 12 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { width: "85%", backgroundColor: "white", borderRadius: 20, padding: 20, maxHeight: "90%" },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 15, textAlign: "center" },
-  toppingItem: { flexDirection: "row", justifyContent: "space-between", padding: 15, borderBottomWidth: 1, borderColor: "#eee" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "85%",
+    backgroundColor: "white",
+    borderRadius: 20,
+    padding: 20,
+    maxHeight: "90%",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 15,
+    textAlign: "center",
+  },
+  toppingItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderColor: "#eee",
+  },
   toppingSelected: { backgroundColor: "#e3f2fd" },
-  btnConfirmar: { backgroundColor: "#28a745", padding: 15, borderRadius: 10, marginTop: 20 },
-  btnConfirmarText: { color: "white", textAlign: "center", fontWeight: "bold", fontSize: 16 },
-  btnAnular: { backgroundColor: "#FFF1F0", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, marginTop: 5, borderWidth: 1, borderColor: "#FFA39E" },
-  btnAnularText: { color: "#F5222D", fontSize: 11, fontWeight: "bold", textTransform: "uppercase" },
-  ventaItem: { flexDirection: "row", backgroundColor: "#fff", padding: 15, borderRadius: 12, marginBottom: 10, elevation: 3 },
+  btnConfirmar: {
+    backgroundColor: "#28a745",
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 20,
+  },
+  btnConfirmarText: {
+    color: "white",
+    textAlign: "center",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  btnAnular: {
+    backgroundColor: "#FFF1F0",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: "#FFA39E",
+  },
+  btnAnularText: {
+    color: "#F5222D",
+    fontSize: 11,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  ventaItem: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    padding: 15,
+    borderRadius: 12,
+    marginBottom: 10,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
   stockText: { fontSize: 10, color: "#e0e0e0", marginTop: 2 },
-  paymentSection: { marginTop: 15, borderTopWidth: 1, borderTopColor: "#eee", paddingTop: 10 },
+  paymentSection: {
+    marginTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: "#eee",
+    paddingTop: 10,
+  },
   deliverySection: { marginTop: 10, paddingTop: 10 },
   paymentLabel: { fontWeight: "bold", marginBottom: 10, color: "#333" },
   paymentRow: { flexDirection: "row", justifyContent: "space-between" },
-  payOption: { flex: 1, padding: 10, borderWidth: 1, borderColor: "#ddd", borderRadius: 8, marginHorizontal: 5, alignItems: "center" },
+  payOption: {
+    flex: 1,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    marginHorizontal: 5,
+    alignItems: "center",
+  },
   payOptionActive: { backgroundColor: "#007AFF", borderColor: "#007AFF" },
-  payOptionActiveDomi: { backgroundColor: "#FF9500", borderColor: "#FF9500" }, // Color naranja para domicilio
+  payOptionActiveDomi: { backgroundColor: "#FF9500", borderColor: "#FF9500" },
   payOptionText: { color: "#333", fontWeight: "500" },
   payOptionTextActive: { color: "white" },
-  metodoTag: { fontSize: 9, backgroundColor: "#eee", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, color: "#666", fontWeight: "bold", textTransform: "uppercase" },
-  domiTag: { backgroundColor: "#FFF7E6", color: "#D48806", borderColor: "#FFE7BA", borderWidth: 0.5, marginLeft: 5 },
+  metodoTag: {
+    fontSize: 9,
+    backgroundColor: "#eee",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    color: "#666",
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  domiTag: {
+    backgroundColor: "#FFF7E6",
+    color: "#D48806",
+    borderColor: "#FFE7BA",
+    borderWidth: 0.5,
+    marginLeft: 5,
+  },
 });
