@@ -10,9 +10,6 @@
     "runtimeVersion": {
       "policy": "fingerprint"
     },
-    "updates": {
-      "url": "https://u.expo.dev/45e765ba-05a6-4512-8961-482ec95b7504"
-    },
     "ios": {
       "supportsTablet": true
     },
@@ -45,8 +42,12 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "45e765ba-05a6-4512-8961-482ec95b7504"
+        "projectId": "bdcfd287-d7e3-4e84-831f-5e4465b1309e"
       }
+    },
+    "owner": "pachopp",
+    "updates": {
+      "url": "https://u.expo.dev/bdcfd287-d7e3-4e84-831f-5e4465b1309e"
     }
   }
 }
