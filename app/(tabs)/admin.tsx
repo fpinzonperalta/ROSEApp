@@ -3,21 +3,43 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
+  Pressable,
   FlatList,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   Modal,
-  Platform,
 } from "react-native";
+import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../../supabaseConfig";
+import { avisar, confirmar } from "../../lib/dialogos";
+import { color, espacio, radio, tactil, texto } from "../../lib/tema";
 import { Ionicons } from "@expo/vector-icons";
 
 const ITEMS_PER_PAGE = 10;
 
+type Tabla = "productos" | "toppings";
+
+// Fila de productos o toppings (los toppings no traen los campos de producto)
+type Item = {
+  id: number;
+  nombre: string;
+  precio: number;
+  esta_activo: "si" | "no";
+  tiene_toppings?: boolean;
+  primer_topping?: boolean;
+};
+
+type GuardarCampo = (
+  tabla: Tabla,
+  id: number,
+  campo: string,
+  valor: string | number | boolean,
+) => void;
+
+type PropsCelda = { item: Item; tablaActual: Tabla; onSave: GuardarCampo };
+
 // Componente para editar Precio
-const CeldaPrecio = ({ item, tablaActual, onSave }) => {
+const CeldaPrecio = ({ item, tablaActual, onSave }: PropsCelda) => {
   const [valorTemp, setValorTemp] = useState(item.precio.toString());
 
   useEffect(() => {
@@ -26,14 +48,18 @@ const CeldaPrecio = ({ item, tablaActual, onSave }) => {
 
   return (
     <TextInput
-      style={styles.priceInput}
+      style={[styles.celdaInput, styles.precioInput]}
       value={valorTemp}
       onChangeText={setValorTemp}
       keyboardType="numeric"
+      accessibilityLabel={`Precio de ${item.nombre}`}
       onBlur={() => {
-        const num = parseInt(valorTemp);
-        if (!isNaN(num) && num !== item.precio) {
+        const num = parseInt(valorTemp, 10);
+        if (!isNaN(num) && num >= 0 && num !== item.precio) {
           onSave(tablaActual, item.id, "precio", num);
+        } else {
+          // Valor inválido: vuelve al precio guardado
+          setValorTemp(item.precio.toString());
         }
       }}
     />
@@ -41,7 +67,7 @@ const CeldaPrecio = ({ item, tablaActual, onSave }) => {
 };
 
 // Componente para editar Nombre
-const CeldaNombre = ({ item, tablaActual, onSave }) => {
+const CeldaNombre = ({ item, tablaActual, onSave }: PropsCelda) => {
   const [nombreTemp, setNombreTemp] = useState(item.nombre);
 
   useEffect(() => {
@@ -50,25 +76,53 @@ const CeldaNombre = ({ item, tablaActual, onSave }) => {
 
   return (
     <TextInput
-      style={styles.nameInput}
+      style={styles.celdaInput}
       value={nombreTemp}
       onChangeText={setNombreTemp}
       keyboardType="default"
+      accessibilityLabel={`Nombre de ${item.nombre}`}
       onBlur={() => {
-        if (nombreTemp !== item.nombre && nombreTemp.trim() !== "") {
-          onSave(tablaActual, item.id, "nombre", nombreTemp);
+        const limpio = nombreTemp.trim();
+        if (limpio !== "" && limpio !== item.nombre) {
+          onSave(tablaActual, item.id, "nombre", limpio);
+        } else {
+          setNombreTemp(item.nombre);
         }
       }}
     />
   );
 };
 
+// Interruptor con texto: el estado se lee sin depender solo del color
+const Interruptor = ({
+  activo,
+  textoSi,
+  textoNo,
+  onPress,
+}: {
+  activo: boolean;
+  textoSi: string;
+  textoNo: string;
+  onPress: () => void;
+}) => (
+  <Pressable
+    style={[styles.interruptor, activo ? styles.interruptorSi : styles.interruptorNo]}
+    onPress={onPress}
+    accessibilityRole="switch"
+    accessibilityState={{ checked: activo }}
+  >
+    <Text style={[styles.interruptorTexto, activo && { color: color.pistachoTexto }]}>
+      {activo ? textoSi : textoNo}
+    </Text>
+  </Pressable>
+);
+
 export default function AdminScreen() {
-  const [activeTab, setActiveTab] = useState("productos");
+  const [activeTab, setActiveTab] = useState<Tabla>("productos");
   const [loading, setLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
-  const [session, setSession] = useState(null);
-  const [data, setData] = useState([]);
+  const [session, setSession] = useState<Session | null>(null);
+  const [data, setData] = useState<Item[]>([]);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const [modalVisible, setModalVisible] = useState(false);
@@ -81,24 +135,21 @@ export default function AdminScreen() {
   const [tieneToppings, setTieneToppings] = useState(true);
   const [primerTopping, setPrimerTopping] = useState(false);
 
+  // Suscripción a la sesión: una sola vez, no en cada cambio de pestaña
   useEffect(() => {
     const checkInitialSession = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       setSession(session);
-      if (session) fetchData();
       setAuthLoading(false);
     };
 
     checkInitialSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
+      (event, newSession) => {
         setSession(newSession);
-        if (event === "SIGNED_IN" && newSession) {
-          fetchData();
-        }
         if (event === "SIGNED_OUT") {
           setData([]);
           setPage(0);
@@ -111,11 +162,13 @@ export default function AdminScreen() {
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [activeTab]);
+  }, []);
 
+  // Depende del id del usuario y no del objeto sesión, que cambia en cada refresco de token
+  const userId = session?.user.id;
   useEffect(() => {
-    if (session) fetchData();
-  }, [activeTab, page]);
+    if (userId) fetchData();
+  }, [userId, activeTab, page]);
 
   async function handleLogin() {
     setLoading(true);
@@ -125,7 +178,7 @@ export default function AdminScreen() {
     });
 
     if (error) {
-      Alert.alert("Error", "Credenciales incorrectas");
+      avisar("No se pudo ingresar", "Revisa el correo y la contraseña.");
     } else if (data?.session) {
       setSession(data.session);
       setPage(0);
@@ -148,44 +201,48 @@ export default function AdminScreen() {
       .order("nombre")
       .range(from, to);
 
-    if (!error) {
-      setData(result);
+    if (error) {
+      avisar("Error", "No se pudieron cargar los datos: " + error.message);
+    } else {
+      setData((result ?? []) as Item[]);
       setTotalCount(count || 0);
     }
     setLoading(false);
   }
 
-  async function updateItem(nombreTabla, id, campo, valor) {
+  const updateItem: GuardarCampo = async (nombreTabla, id, campo, valor) => {
     const { error } = await supabase
       .from(nombreTabla)
       .update({ [campo]: valor })
       .eq("id", id);
-    if (!error && activeTab === nombreTabla) {
+    if (error) {
+      avisar("Error", "No se pudo guardar el cambio: " + error.message);
+      // Recarga para que la celda no muestre un valor que no quedó guardado
+      if (activeTab === nombreTabla) fetchData();
+      return;
+    }
+    if (activeTab === nombreTabla) {
       setData((prev) =>
         prev.map((p) => (p.id === id ? { ...p, [campo]: valor } : p)),
       );
     }
-  }
+  };
 
-  async function confirmarEliminar(id, nombreItem, esta_activo) {
+  async function confirmarEliminar(id: number, nombreItem: string, esta_activo: Item["esta_activo"]) {
     const accion = esta_activo === "si" ? "desactivar" : "activar";
-    const mensaje = `¿Estás seguro de que deseas ${accion} "${nombreItem}"?`;
-
-    if (Platform.OS === "web") {
-      if (window.confirm(mensaje)) activarODesactivar(id, esta_activo);
-    } else {
-      Alert.alert("Confirmar Acción", mensaje, [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: esta_activo === "si" ? "Desactivar" : "Activar",
-          style: "destructive",
-          onPress: () => activarODesactivar(id, esta_activo),
-        },
-      ]);
-    }
+    const ok = await confirmar(
+      esta_activo === "si" ? "Desactivar" : "Activar",
+      `¿Quieres ${accion} "${nombreItem}"? ${
+        esta_activo === "si"
+          ? "Dejará de aparecer en la app de ventas."
+          : "Volverá a aparecer en la app de ventas."
+      }`,
+      esta_activo === "si" ? "Desactivar" : "Activar",
+    );
+    if (ok) activarODesactivar(id, esta_activo);
   }
 
-  async function activarODesactivar(id, esta_activo) {
+  async function activarODesactivar(id: number, esta_activo: Item["esta_activo"]) {
     setLoading(true);
     const nuevoEstado = esta_activo === "si" ? "no" : "si";
     const { error } = await supabase
@@ -194,7 +251,7 @@ export default function AdminScreen() {
       .eq("id", id);
 
     if (error) {
-      Alert.alert("Error", "No se pudo actualizar: " + error.message);
+      avisar("Error", "No se pudo actualizar: " + error.message);
     } else {
       fetchData();
     }
@@ -202,137 +259,148 @@ export default function AdminScreen() {
   }
 
   async function crearItem() {
-    if (!nombre || !precio) return Alert.alert("Error", "Faltan datos");
+    const nombreLimpio = nombre.trim();
+    const precioNum = parseInt(precio, 10);
+    if (!nombreLimpio || !precio) return avisar("Faltan datos", "Escribe el nombre y el precio.");
+    if (isNaN(precioNum) || precioNum < 0) {
+      return avisar("Precio no válido", "Escribe el precio solo con números, sin puntos.");
+    }
 
     const objetoInsertar =
       activeTab === "productos"
         ? {
-            nombre,
-            precio: parseInt(precio),
+            nombre: nombreLimpio,
+            precio: precioNum,
             stock: 100,
             tiene_toppings: tieneToppings,
             primer_topping: primerTopping,
             esta_activo: "si",
           }
-        : { nombre, precio: parseInt(precio), esta_activo: "si" };
+        : { nombre: nombreLimpio, precio: precioNum, esta_activo: "si" };
 
     const { error } = await supabase.from(activeTab).insert([objetoInsertar]);
-    if (!error) {
-      setModalVisible(false);
-      setNombre("");
-      setPrecio("");
-      setPrimerTopping(false);
-      fetchData();
-    }
+    if (error) return avisar("Error", "No se pudo guardar: " + error.message);
+
+    setModalVisible(false);
+    setNombre("");
+    setPrecio("");
+    setTieneToppings(true);
+    setPrimerTopping(false);
+    fetchData();
   }
+
+  const cambiarTabla = (tabla: Tabla) => {
+    if (tabla === activeTab) return;
+    setData([]);
+    setPage(0);
+    setActiveTab(tabla);
+  };
 
   if (authLoading)
     return (
-      <View style={styles.mainContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={styles.pantalla}>
+        <ActivityIndicator size="large" color={color.fresa} style={{ marginTop: 80 }} />
       </View>
     );
 
   if (!session) {
     return (
-      <View style={styles.loginContainer}>
+      <View style={[styles.pantalla, styles.centrado]}>
         <View style={styles.loginCard}>
-          <Text style={styles.loginTitle}>Panel Administrativo</Text>
+          <Text style={[texto.marca, { textAlign: "center" }]}>ROSE</Text>
+          <Text style={[texto.secundario, styles.loginSub]}>Administración del menú</Text>
+          <Text style={styles.etiqueta}>Correo</Text>
           <TextInput
-            placeholder="Email"
             value={email}
             onChangeText={setEmail}
             style={styles.input}
             autoCapitalize="none"
+            keyboardType="email-address"
+            autoComplete="email"
           />
+          <Text style={styles.etiqueta}>Contraseña</Text>
           <TextInput
-            placeholder="Contraseña"
             value={password}
             onChangeText={setPassword}
             style={styles.input}
             secureTextEntry
+            autoComplete="password"
+            onSubmitEditing={handleLogin}
           />
-          <TouchableOpacity
-            style={styles.btnLoginPrimary}
+          <Pressable
+            style={({ pressed }) => [styles.btnPrimario, pressed && styles.btnPrimarioPresionado]}
             onPress={handleLogin}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={color.superficie} />
             ) : (
-              <Text style={styles.btnTextLogin}>Ingresar</Text>
+              <Text style={styles.btnPrimarioTexto}>Ingresar</Text>
             )}
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     );
   }
 
+  const esProductos = activeTab === "productos";
+  const totalPaginas = Math.ceil(totalCount / ITEMS_PER_PAGE) || 1;
+  const hayAnterior = page > 0;
+  const haySiguiente = (page + 1) * ITEMS_PER_PAGE < totalCount;
+
   return (
-    <View style={styles.mainContainer}>
-      <View style={styles.cardContainer}>
+    <View style={styles.pantalla}>
+      <View style={styles.contenedor}>
         <View style={styles.headerRow}>
-          <Text style={styles.mainTitle}>
-            Gestión de {activeTab === "productos" ? "Productos" : "Toppings"}
-          </Text>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 15 }}>
-            <TouchableOpacity onPress={() => setModalVisible(true)}>
-              <Ionicons name="add-circle" size={35} color="#4CD964" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={async () => {
-                await supabase.auth.signOut();
-                setSession(null);
-              }}
-            >
-              <Ionicons name="log-out-outline" size={30} color="#FF3B30" />
-            </TouchableOpacity>
-          </View>
+          <Text style={texto.marca}>ROSE</Text>
+          <Pressable
+            style={styles.btnTexto}
+            onPress={async () => {
+              await supabase.auth.signOut();
+              setSession(null);
+            }}
+          >
+            <Ionicons name="log-out-outline" size={18} color={color.ciruelaSuave} />
+            <Text style={texto.secundario}>Cerrar sesión</Text>
+          </Pressable>
         </View>
 
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "productos" && styles.activeTab]}
-            onPress={() => {
-              setData([]);
-              setPage(0);
-              setActiveTab("productos");
-            }}
+        <View style={styles.barra}>
+          <View style={styles.segmentado} accessibilityRole="tablist">
+            {(["productos", "toppings"] as Tabla[]).map((tabla) => {
+              const activo = activeTab === tabla;
+              return (
+                <Pressable
+                  key={tabla}
+                  style={[styles.segmento, activo && styles.segmentoActivo]}
+                  onPress={() => cambiarTabla(tabla)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: activo }}
+                >
+                  <Text style={[styles.segmentoTexto, activo && { color: color.superficie }]}>
+                    {tabla === "productos" ? "Productos" : "Toppings"}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            style={({ pressed }) => [styles.btnPrimario, styles.btnNuevo, pressed && styles.btnPrimarioPresionado]}
+            onPress={() => setModalVisible(true)}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "productos" && styles.activeTabText,
-              ]}
-            >
-              Productos
+            <Ionicons name="add" size={20} color={color.superficie} />
+            <Text style={styles.btnPrimarioTexto}>
+              {esProductos ? "Nuevo producto" : "Nuevo topping"}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "toppings" && styles.activeTab]}
-            onPress={() => {
-              setData([]);
-              setPage(0);
-              setActiveTab("toppings");
-            }}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === "toppings" && styles.activeTabText,
-              ]}
-            >
-              Toppings
-            </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
+
+        <Text style={[texto.pequeno, { marginBottom: espacio.s }]}>
+          Haz clic en un nombre o precio para editarlo; se guarda al salir del campo.
+        </Text>
 
         {loading ? (
-          <ActivityIndicator
-            size="large"
-            color="#007AFF"
-            style={{ marginVertical: 20 }}
-          />
+          <ActivityIndicator size="large" color={color.fresa} style={{ marginVertical: espacio.xl }} />
         ) : (
           <FlatList
             data={data}
@@ -340,234 +408,149 @@ export default function AdminScreen() {
             ListHeaderComponent={() => (
               <View style={styles.tableHeader}>
                 <Text style={[styles.col, { flex: 2 }]}>Nombre</Text>
-                {activeTab === "productos" && (
-                  <Text
-                    style={[styles.col, { flex: 0.6, textAlign: "center" }]}
-                  >
-                    Stock
-                  </Text>
-                )}
-                <Text style={[styles.col, { flex: 0.8, textAlign: "center" }]}>
-                  Precio ($)
-                </Text>
-                {activeTab === "productos" && (
+                <Text style={[styles.col, { flex: 1 }]}>Precio</Text>
+                {esProductos && (
                   <>
-                    <Text
-                      style={[styles.col, { flex: 1, textAlign: "center" }]}
-                    >
-                      Toppings
-                    </Text>
-                    <Text
-                      style={[styles.col, { flex: 1, textAlign: "center" }]}
-                    >
-                      1er Topping
-                    </Text>
+                    <Text style={[styles.col, styles.colCentro]}>Toppings</Text>
+                    <Text style={[styles.col, styles.colCentro]}>Primer topping</Text>
                   </>
                 )}
-                <Text style={[styles.col, { width: 50, textAlign: "center" }]}>
-                  Acción
-                </Text>
+                <Text style={[styles.col, styles.colCentro]}>Estado</Text>
               </View>
             )}
+            ListEmptyComponent={
+              <Text style={[texto.secundario, { paddingVertical: espacio.xl }]}>
+                {esProductos
+                  ? "Aún no hay productos. Crea el primero con “Nuevo producto”."
+                  : "Aún no hay toppings. Crea el primero con “Nuevo topping”."}
+              </Text>
+            }
             renderItem={({ item }) => (
-              <View style={styles.row}>
+              <View style={[styles.row, item.esta_activo !== "si" && styles.rowInactiva]}>
                 <View style={{ flex: 2 }}>
-                  <CeldaNombre
-                    item={item}
-                    tablaActual={activeTab}
-                    onSave={updateItem}
-                  />
+                  <CeldaNombre item={item} tablaActual={activeTab} onSave={updateItem} />
                 </View>
-                {activeTab === "productos" && (
-                  <Text
-                    style={[styles.cell, { flex: 0.6, textAlign: "center" }]}
-                  >
-                    {item.stock}
-                  </Text>
-                )}
-                <View style={{ flex: 0.8 }}>
-                  <CeldaPrecio
-                    item={item}
-                    tablaActual={activeTab}
-                    onSave={updateItem}
-                  />
+                <View style={{ flex: 1 }}>
+                  <CeldaPrecio item={item} tablaActual={activeTab} onSave={updateItem} />
                 </View>
-                {activeTab === "productos" && (
+                {esProductos && (
                   <>
-                    <TouchableOpacity
-                      style={[
-                        styles.toppingBtn,
-                        {
-                          flex: 1,
-                          backgroundColor: item.tiene_toppings
-                            ? "#4CD964"
-                            : "#FF3B30",
-                        },
-                      ]}
-                      onPress={() =>
-                        updateItem(
-                          "productos",
-                          item.id,
-                          "tiene_toppings",
-                          !item.tiene_toppings,
-                        )
-                      }
-                    >
-                      <Text style={styles.toppingText}>
-                        {item.tiene_toppings ? "Con" : "Sin"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.toppingBtn,
-                        {
-                          flex: 1,
-                          backgroundColor: item.primer_topping
-                            ? "#5856D6"
-                            : "#8E8E93",
-                        },
-                      ]}
-                      onPress={() =>
-                        updateItem(
-                          "productos",
-                          item.id,
-                          "primer_topping",
-                          !item.primer_topping,
-                        )
-                      }
-                    >
-                      <Text style={styles.toppingText}>
-                        {item.primer_topping ? "Sí" : "No"}
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={styles.colCentro}>
+                      <Interruptor
+                        activo={!!item.tiene_toppings}
+                        textoSi="Con toppings"
+                        textoNo="Sin toppings"
+                        onPress={() =>
+                          updateItem("productos", item.id, "tiene_toppings", !item.tiene_toppings)
+                        }
+                      />
+                    </View>
+                    <View style={styles.colCentro}>
+                      <Interruptor
+                        activo={!!item.primer_topping}
+                        textoSi="Incluido"
+                        textoNo="Se cobra"
+                        onPress={() =>
+                          updateItem("productos", item.id, "primer_topping", !item.primer_topping)
+                        }
+                      />
+                    </View>
                   </>
                 )}
-                <TouchableOpacity
-                  style={{ width: 50, alignItems: "center" }}
-                  onPress={() =>
-                    confirmarEliminar(item.id, item.nombre, item.esta_activo)
-                  }
-                >
-                  <Ionicons
-                    name={
-                      item.esta_activo === "si"
-                        ? "checkmark-outline"
-                        : "close-outline"
-                    }
-                    size={22}
-                    color={item.esta_activo === "si" ? "#4CD964" : "#FF3B30"}
+                <View style={styles.colCentro}>
+                  <Interruptor
+                    activo={item.esta_activo === "si"}
+                    textoSi="Activo"
+                    textoNo="Inactivo"
+                    onPress={() => confirmarEliminar(item.id, item.nombre, item.esta_activo)}
                   />
-                </TouchableOpacity>
+                </View>
               </View>
             )}
           />
         )}
 
         <View style={styles.paginationRow}>
-          <TouchableOpacity
-            disabled={page === 0}
+          <Pressable
+            style={styles.btnPagina}
+            disabled={!hayAnterior}
             onPress={() => setPage((p) => p - 1)}
+            accessibilityLabel="Página anterior"
           >
-            <Ionicons
-              name="chevron-back"
-              size={24}
-              color={page === 0 ? "#CCC" : "#007AFF"}
-            />
-          </TouchableOpacity>
-          <Text style={styles.pageIndicator}>
-            Página {page + 1} de {Math.ceil(totalCount / ITEMS_PER_PAGE) || 1}
+            <Ionicons name="chevron-back" size={22} color={hayAnterior ? color.fresa : color.linea} />
+          </Pressable>
+          <Text style={[texto.secundario, texto.numeros]}>
+            Página {page + 1} de {totalPaginas}
           </Text>
-          <TouchableOpacity
-            disabled={(page + 1) * ITEMS_PER_PAGE >= totalCount}
+          <Pressable
+            style={styles.btnPagina}
+            disabled={!haySiguiente}
             onPress={() => setPage((p) => p + 1)}
+            accessibilityLabel="Página siguiente"
           >
-            <Ionicons
-              name="chevron-forward"
-              size={24}
-              color={
-                (page + 1) * ITEMS_PER_PAGE >= totalCount ? "#CCC" : "#007AFF"
-              }
-            />
-          </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={22} color={haySiguiente ? color.fresa : color.linea} />
+          </Pressable>
         </View>
       </View>
 
-      <Modal visible={modalVisible} animationType="fade" transparent={true}>
-        <View style={styles.modalOverlay}>
+      <Modal
+        visible={modalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={[styles.velo, styles.centrado]}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Nuevo {activeTab === "productos" ? "Producto" : "Topping"}
+            <Text style={[texto.titulo, { marginBottom: espacio.l }]}>
+              {esProductos ? "Nuevo producto" : "Nuevo topping"}
             </Text>
+            <Text style={styles.etiqueta}>Nombre</Text>
+            <TextInput value={nombre} onChangeText={setNombre} style={styles.input} />
+            <Text style={styles.etiqueta}>Precio</Text>
             <TextInput
-              placeholder="Nombre"
-              value={nombre}
-              onChangeText={setNombre}
-              style={styles.input}
-            />
-            <TextInput
-              placeholder="Precio"
+              placeholder="Ej: 9000"
+              placeholderTextColor={color.ciruelaSuave}
               value={precio}
               onChangeText={setPrecio}
               keyboardType="numeric"
               style={styles.input}
             />
 
-            {activeTab === "productos" && (
-              <View style={{ gap: 10, marginBottom: 20 }}>
-                <TouchableOpacity
-                  style={[
-                    styles.modalToppingBtn,
-                    {
-                      backgroundColor: tieneToppings ? "#4CD964" : "#FF3B30",
-                      marginBottom: 0,
-                    },
-                  ]}
-                  onPress={() => setTieneToppings(!tieneToppings)}
-                >
-                  <Text style={styles.toppingText}>
-                    {tieneToppings
-                      ? "Toppings Habilitados"
-                      : "Toppings Deshabilitados"}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.modalToppingBtn,
-                    {
-                      backgroundColor: primerTopping ? "#5856D6" : "#8E8E93",
-                      marginBottom: 0,
-                    },
-                  ]}
-                  onPress={() => setPrimerTopping(!primerTopping)}
-                >
-                  <Text style={styles.toppingText}>
-                    {primerTopping
-                      ? "Primer Topping Incluido"
-                      : "Sin Primer Topping"}
-                  </Text>
-                </TouchableOpacity>
+            {esProductos && (
+              <View style={{ gap: espacio.m, marginBottom: espacio.l }}>
+                <View style={styles.opcionFila}>
+                  <Text style={texto.cuerpo}>¿Lleva toppings?</Text>
+                  <Interruptor
+                    activo={tieneToppings}
+                    textoSi="Con toppings"
+                    textoNo="Sin toppings"
+                    onPress={() => setTieneToppings(!tieneToppings)}
+                  />
+                </View>
+                <View style={styles.opcionFila}>
+                  <Text style={texto.cuerpo}>Primer topping</Text>
+                  <Interruptor
+                    activo={primerTopping}
+                    textoSi="Incluido"
+                    textoNo="Se cobra"
+                    onPress={() => setPrimerTopping(!primerTopping)}
+                  />
+                </View>
               </View>
             )}
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.btnCancel]}
-                onPress={() => setModalVisible(false)}
-              >
-                <Text style={{ color: "#FF3B30", fontWeight: "bold" }}>
-                  Cancelar
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalBtn, styles.btnSaveMain]}
+              <Pressable style={[styles.modalBtn, styles.btnCancelar]} onPress={() => setModalVisible(false)}>
+                <Text style={{ color: color.ciruela, fontWeight: "600" }}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.modalBtn, styles.btnPrimario, pressed && styles.btnPrimarioPresionado]}
                 onPress={crearItem}
               >
-                <Text style={{ color: "white", fontWeight: "bold" }}>
-                  Guardar
+                <Text style={styles.btnPrimarioTexto}>
+                  {esProductos ? "Crear producto" : "Crear topping"}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -577,162 +560,160 @@ export default function AdminScreen() {
 }
 
 const styles = StyleSheet.create({
-  mainContainer: {
-    flex: 1,
-    backgroundColor: "#F2F2F7",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loginContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F2F2F7",
-  },
+  pantalla: { flex: 1, backgroundColor: color.leche },
+  centrado: { justifyContent: "center", alignItems: "center" },
+
   loginCard: {
-    width: 340,
-    padding: 30,
-    backgroundColor: "white",
-    borderRadius: 25,
-    ...Platform.select({
-      web: {
-        boxShadow: "0px 4px 10px rgba(0, 0, 0, 0.1)",
-      },
-      default: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
-        elevation: 8,
-      },
-    }),
-  },
-  loginTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 25,
-    color: "#1C1C1E",
-  },
-  input: {
-    backgroundColor: "#F2F2F7",
-    padding: 15,
-    borderRadius: 15,
-    marginBottom: 15,
-    fontSize: 16,
-  },
-
-  btnLoginPrimary: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 15,
-    borderRadius: 15,
-    alignItems: "center",
-    marginTop: 10,
     width: "100%",
+    maxWidth: 360,
+    padding: espacio.xxl,
+    backgroundColor: color.superficie,
+    borderRadius: radio.l,
+    borderWidth: 1,
+    borderColor: color.linea,
   },
-  btnTextLogin: { color: "white", fontWeight: "bold", fontSize: 16 },
+  loginSub: { textAlign: "center", marginBottom: espacio.xl },
+  etiqueta: { fontSize: 14, fontWeight: "600", color: color.ciruela, marginBottom: espacio.xs },
+  input: {
+    backgroundColor: color.leche,
+    borderWidth: 1,
+    borderColor: color.linea,
+    paddingHorizontal: espacio.m,
+    minHeight: tactil,
+    borderRadius: radio.m,
+    marginBottom: espacio.l,
+    fontSize: 16,
+    color: color.ciruela,
+  },
 
-  cardContainer: {
-    width: "95%",
-    maxWidth: 1200,
-    backgroundColor: "#FFF",
-    marginTop: 20,
-    borderRadius: 25,
-    padding: 20,
+  btnPrimario: {
+    backgroundColor: color.fresa,
+    minHeight: tactil,
+    paddingHorizontal: espacio.l,
+    borderRadius: radio.m,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  btnPrimarioPresionado: { backgroundColor: color.fresaOscura },
+  btnPrimarioTexto: { color: color.superficie, fontWeight: "700", fontSize: 16 },
+  btnNuevo: { flexDirection: "row", gap: espacio.xs },
+  btnTexto: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: espacio.xs,
+    minHeight: 44,
+    paddingHorizontal: espacio.s,
+  },
+
+  contenedor: {
     flex: 1,
-    marginBottom: 40,
+    width: "100%",
+    maxWidth: 1000,
+    alignSelf: "center",
+    padding: espacio.xl,
   },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
+    marginBottom: espacio.xl,
   },
-  mainTitle: { fontSize: 26, fontWeight: "bold" },
-  tabContainer: {
+  barra: {
     flexDirection: "row",
-    marginBottom: 20,
-    backgroundColor: "#F2F2F7",
-    borderRadius: 15,
-    padding: 5,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
+    flexWrap: "wrap",
+    justifyContent: "space-between",
     alignItems: "center",
-    borderRadius: 10,
-    // Se asegura que no haya pointerEvents como prop directa
+    gap: espacio.m,
+    marginBottom: espacio.l,
   },
-  activeTab: { backgroundColor: "#FFF", elevation: 2 },
-  tabText: { fontWeight: "600", color: "#8E8E93" },
-  activeTabText: { color: "#007AFF" },
+  segmentado: {
+    flexDirection: "row",
+    backgroundColor: color.superficie,
+    borderWidth: 1,
+    borderColor: color.linea,
+    borderRadius: radio.m,
+    padding: espacio.xs,
+    gap: espacio.xs,
+  },
+  segmento: {
+    minHeight: 40,
+    paddingHorizontal: espacio.l,
+    justifyContent: "center",
+    borderRadius: radio.s,
+  },
+  segmentoActivo: { backgroundColor: color.ciruela },
+  segmentoTexto: { fontWeight: "600", fontSize: 15, color: color.ciruelaSuave },
+
   tableHeader: {
     flexDirection: "row",
-    paddingVertical: 15,
+    paddingVertical: espacio.m,
+    gap: espacio.m,
     borderBottomWidth: 1,
-    borderColor: "#EEE",
+    borderColor: color.linea,
   },
-  col: { fontWeight: "bold", color: "#888", fontSize: 13 },
+  col: { fontWeight: "700", color: color.ciruelaSuave, fontSize: 13 },
+  colCentro: { flex: 1, alignItems: "center", textAlign: "center" },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    gap: espacio.m,
+    paddingVertical: espacio.s,
     borderBottomWidth: 1,
-    borderColor: "#F2F2F7",
+    borderColor: color.linea,
+    backgroundColor: color.superficie,
   },
-  cell: { fontSize: 16 },
-
-  nameInput: { fontSize: 16, color: "#007AFF", fontWeight: "bold", padding: 5 },
-  priceInput: {
-    backgroundColor: "#E3F2FD",
-    padding: 8,
-    borderRadius: 12,
-    textAlign: "center",
-    fontWeight: "bold",
-    color: "#007AFF",
+  rowInactiva: { opacity: 0.55 },
+  celdaInput: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: color.ciruela,
+    paddingHorizontal: espacio.s,
+    minHeight: 40,
+    borderRadius: radio.s,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
+  precioInput: { fontVariant: ["tabular-nums"], backgroundColor: color.leche, borderColor: color.linea },
 
-  toppingBtn: {
-    paddingVertical: 8,
-    borderRadius: 10,
+  interruptor: {
+    minHeight: 32,
+    minWidth: 110,
+    paddingHorizontal: espacio.m,
+    borderRadius: radio.s,
     alignItems: "center",
-    marginHorizontal: 5,
+    justifyContent: "center",
+    borderWidth: 1,
   },
-  toppingText: { color: "white", fontWeight: "bold", fontSize: 12 },
+  interruptorSi: { backgroundColor: color.pistachoSuave, borderColor: color.pistacho },
+  interruptorNo: { backgroundColor: color.superficie, borderColor: color.linea },
+  interruptorTexto: { fontSize: 13, fontWeight: "600", color: color.ciruelaSuave },
+
   paginationRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 15,
-    gap: 20,
+    paddingVertical: espacio.l,
+    gap: espacio.l,
   },
-  pageIndicator: { fontSize: 16, color: "#666" },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  btnPagina: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+
+  velo: { flex: 1, backgroundColor: color.velo, padding: espacio.l },
   modalContent: {
-    width: 380,
-    backgroundColor: "white",
-    padding: 30,
-    borderRadius: 30,
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: color.superficie,
+    padding: espacio.xxl,
+    borderRadius: radio.l,
   },
-  modalTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  modalToppingBtn: {
-    paddingVertical: 15,
-    borderRadius: 15,
+  opcionFila: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  modalActions: { flexDirection: "row", gap: espacio.m, marginTop: espacio.s },
+  modalBtn: { flex: 1 },
+  btnCancelar: {
+    minHeight: tactil,
+    borderRadius: radio.m,
     alignItems: "center",
-    marginBottom: 10,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: color.linea,
   },
-  modalActions: { flexDirection: "row", gap: 15, marginTop: 10 },
-  modalBtn: { flex: 1, padding: 15, borderRadius: 15, alignItems: "center" },
-  btnCancel: { backgroundColor: "#FFF0F0" },
-  btnSaveMain: { backgroundColor: "#007AFF" },
 });

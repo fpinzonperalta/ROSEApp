@@ -1,21 +1,31 @@
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Linking,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { supabase } from "../../supabaseConfig";
+import { avisar } from "../../lib/dialogos";
+import { color, espacio, radio, tactil, texto } from "../../lib/tema";
+import { hora, pesos } from "../../lib/formato";
+
+// "YYYY-MM-DD" en hora local; toISOString() usa UTC y en la noche daría el día siguiente
+const fechaLocalISO = (fecha: Date) => {
+  const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+  const dia = String(fecha.getDate()).padStart(2, "0");
+  return `${fecha.getFullYear()}-${mes}-${dia}`;
+};
 
 interface Venta {
   id: number;
@@ -24,7 +34,7 @@ interface Venta {
   nombre_producto: string;
   toppings_texto: string;
   metodo_pago: string;
-  es_domicilio: boolean; // <-- Nuevo campo
+  es_domicilio: boolean;
 }
 
 export default function HistorialVentas() {
@@ -51,8 +61,8 @@ export default function HistorialVentas() {
       const { data, error } = await supabase
         .from("ventas")
         .select(`
-          id, 
-          total, 
+          id,
+          total,
           created_at,
           metodo_pago,
           es_domicilio,
@@ -83,49 +93,10 @@ export default function HistorialVentas() {
       }
     } catch (error: any) {
       console.error("Error cargando ventas:", error.message);
+      avisar("Error", "No se pudieron cargar las ventas: " + error.message);
     } finally {
       setCargando(false);
     }
-  };
-
-  const enviarReporteWhatsApp = () => {
-    if (ventas.length === 0) {
-      if (Platform.OS === "web") alert("No hay ventas para reportar.");
-      else Alert.alert("Sin datos", "No hay ventas para reportar.");
-      return;
-    }
-
-    const fechaFormateada = fechaFiltro.toLocaleDateString("es-CO", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-
-    const totalRecaudado = ventas.reduce((acc, v) => acc + v.total, 0);
-    const totalEfectivo = ventas.filter(v => v.metodo_pago === "Efectivo").reduce((acc, v) => acc + v.total, 0);
-    const totalTransferencia = ventas.filter(v => v.metodo_pago === "Transferencia").reduce((acc, v) => acc + v.total, 0);
-    
-    // Cálculos de domicilio
-    const ventasDomi = ventas.filter(v => v.es_domicilio);
-    const totalDomi = ventasDomi.reduce((acc, v) => acc + v.total, 0);
-
-    const insumos = obtenerResumenToppings();
-
-    let mensaje = `*📊 REPORTE DE VENTAS - ${fechaFormateada}*\n\n`;
-    mensaje += `*💰 TOTAL RECAUDADO: $${totalRecaudado.toLocaleString()}*\n`;
-    mensaje += `--------------------------\n`;
-    mensaje += `💵 Efectivo: $${totalEfectivo.toLocaleString()}\n`;
-    mensaje += `📱 Transferencia: $${totalTransferencia.toLocaleString()}\n`;
-    mensaje += `🛵 Domicilios: ${ventasDomi.length} ($${totalDomi.toLocaleString()})\n\n`;
-    mensaje += `*🍦 Ventas totales:* ${ventas.length}\n\n`;
-    mensaje += `*📦 RESUMEN DE INSUMOS:*\n`;
-    insumos.forEach((item) => {
-      mensaje += `- ${item.nombre}: x${item.cantidad}\n`;
-    });
-    mensaje += `\n_Generado por ROSE POS_`;
-
-    const url = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
-    Linking.openURL(url);
   };
 
   const obtenerResumenToppings = () => {
@@ -143,31 +114,184 @@ export default function HistorialVentas() {
       .sort((a, b) => b.cantidad - a.cantidad);
   };
 
+  const insumos = obtenerResumenToppings();
+  const totalRecaudado = ventas.reduce((acc, v) => acc + v.total, 0);
+  const totalEfectivo = ventas
+    .filter((v) => v.metodo_pago === "Efectivo")
+    .reduce((acc, v) => acc + v.total, 0);
+  const totalTransferencia = ventas
+    .filter((v) => v.metodo_pago === "Transferencia")
+    .reduce((acc, v) => acc + v.total, 0);
+  const ventasDomi = ventas.filter((v) => v.es_domicilio);
+  const totalDomi = ventasDomi.reduce((acc, v) => acc + v.total, 0);
+
+  const fechaLarga = fechaFiltro.toLocaleDateString("es-CO", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  const enviarReporteWhatsApp = () => {
+    if (ventas.length === 0) {
+      avisar("Sin ventas", "No hay ventas en esta fecha para enviar.");
+      return;
+    }
+
+    const fechaFormateada = fechaFiltro.toLocaleDateString("es-CO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+
+    let mensaje = `*📊 REPORTE DE VENTAS - ${fechaFormateada}*\n\n`;
+    mensaje += `*💰 TOTAL RECAUDADO: ${pesos(totalRecaudado)}*\n`;
+    mensaje += `--------------------------\n`;
+    mensaje += `💵 Efectivo: ${pesos(totalEfectivo)}\n`;
+    mensaje += `📱 Transferencia: ${pesos(totalTransferencia)}\n`;
+    mensaje += `🛵 Domicilios: ${ventasDomi.length} (${pesos(totalDomi)})\n\n`;
+    mensaje += `*🍦 Ventas totales:* ${ventas.length}\n\n`;
+    mensaje += `*📦 RESUMEN DE INSUMOS:*\n`;
+    insumos.forEach((item) => {
+      mensaje += `- ${item.nombre}: x${item.cantidad}\n`;
+    });
+    mensaje += `\n_Generado por ROSE POS_`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(mensaje)}`;
+    Linking.openURL(url);
+  };
+
   const onChangeFecha = (event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === "android") setShowDatePicker(false);
     if (selectedDate) setFechaFiltro(selectedDate);
   };
 
-  const renderDatePicker = () => {
-    if (Platform.OS === "web") {
-      return (
-        <View style={styles.webPickerContainer}>
-          <Text style={styles.webLabel}>Filtrar fecha:</Text>
-          <input
-            type="date"
-            value={fechaFiltro.toISOString().split("T")[0]}
-            onChange={(e) => setFechaFiltro(new Date(e.target.value + "T00:00:00"))}
-            style={{ padding: "8px", borderRadius: "8px", border: "1px solid #007AFF" }}
-          />
-        </View>
-      );
-    }
+  const selectorFecha =
+    Platform.OS === "web" ? (
+      <input
+        type="date"
+        aria-label="Fecha del reporte"
+        value={fechaLocalISO(fechaFiltro)}
+        max={fechaLocalISO(new Date())}
+        onChange={(e) => {
+          // Al borrar la fecha el valor llega vacío y crearía una fecha inválida
+          if (e.target.value) setFechaFiltro(new Date(e.target.value + "T00:00:00"));
+        }}
+        style={{
+          font: "inherit",
+          fontSize: 15,
+          padding: "10px 12px",
+          borderRadius: radio.m,
+          border: `1px solid ${color.linea}`,
+          color: color.ciruela,
+          backgroundColor: color.superficie,
+        }}
+      />
+    ) : (
+      <Pressable
+        style={styles.btnFecha}
+        onPress={() => setShowDatePicker(true)}
+        accessibilityLabel="Cambiar fecha"
+      >
+        <Ionicons name="calendar-outline" size={18} color={color.fresa} />
+        <Text style={styles.btnFechaTexto}>Cambiar fecha</Text>
+      </Pressable>
+    );
 
-    return (
-      showDatePicker && (
-        <View style={styles.modalOverlay}>
+  const encabezado = (
+    <View>
+      <View style={styles.header}>
+        <View style={{ flexShrink: 1 }}>
+          <Text style={texto.titulo}>Reporte</Text>
+          <Text style={[texto.secundario, styles.fecha]}>{fechaLarga}</Text>
+        </View>
+        {selectorFecha}
+      </View>
+
+      <Text style={texto.secundario}>Total recaudado</Text>
+      <Text style={texto.montoGrande}>{pesos(totalRecaudado)}</Text>
+
+      <View style={styles.desglose}>
+        <Dato icono="cash-outline" etiqueta="Efectivo" valor={pesos(totalEfectivo)} />
+        <Dato icono="swap-horizontal" etiqueta="Transferencia" valor={pesos(totalTransferencia)} />
+        <Dato
+          icono="bicycle"
+          etiqueta={ventasDomi.length === 1 ? "1 domicilio" : `${ventasDomi.length} domicilios`}
+          valor={pesos(totalDomi)}
+        />
+      </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.btnWhatsApp, pressed && { opacity: 0.85 }]}
+        onPress={enviarReporteWhatsApp}
+      >
+        <Ionicons name="logo-whatsapp" size={20} color={color.superficie} />
+        <Text style={styles.btnWhatsAppTexto}>Enviar por WhatsApp</Text>
+      </Pressable>
+
+      {insumos.length > 0 && (
+        <>
+          <Text style={[texto.seccion, styles.tituloSeccion]}>Toppings usados</Text>
+          <View style={styles.chips}>
+            {insumos.map((item) => (
+              <View key={item.nombre} style={styles.chip}>
+                <Text style={styles.chipTexto}>{item.nombre}</Text>
+                <Text style={[texto.numeros, styles.chipCantidad]}>×{item.cantidad}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+
+      <Text style={[texto.seccion, styles.tituloSeccion]}>
+        {ventas.length === 1 ? "1 venta" : `${ventas.length} ventas`}
+      </Text>
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      {cargando ? (
+        <ActivityIndicator size="large" color={color.fresa} style={{ marginTop: 80 }} />
+      ) : (
+        <FlatList
+          data={ventas}
+          keyExtractor={(item) => item.id.toString()}
+          ListHeaderComponent={encabezado}
+          contentContainerStyle={styles.contenido}
+          ItemSeparatorComponent={() => <View style={styles.separador} />}
+          renderItem={({ item }) => (
+            <View style={styles.ventaFila}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.ventaNombre}>{item.nombre_producto}</Text>
+                {item.toppings_texto ? (
+                  <Text style={texto.secundario}>+ {item.toppings_texto}</Text>
+                ) : null}
+                <View style={styles.ventaMeta}>
+                  <Text style={texto.pequeno}>{item.metodo_pago}</Text>
+                  {item.es_domicilio && (
+                    <View style={styles.chipDomi}>
+                      <Ionicons name="bicycle" size={13} color={color.barquilloTexto} />
+                      <Text style={styles.chipDomiTexto}>Domicilio</Text>
+                    </View>
+                  )}
+                  <Text style={texto.pequeno}>{hora(item.created_at)}</Text>
+                </View>
+              </View>
+              <Text style={texto.monto}>{pesos(item.total)}</Text>
+            </View>
+          )}
+          ListEmptyComponent={
+            <Text style={[texto.secundario, styles.vacio]}>
+              No hubo ventas este día. Elige otra fecha para ver su reporte.
+            </Text>
+          }
+        />
+      )}
+
+      {Platform.OS !== "web" && showDatePicker && (
+        <View style={styles.velo}>
           <View style={styles.pickerContainer}>
-            <Text style={styles.pickerTitle}>Seleccionar Fecha</Text>
+            <Text style={[texto.seccion, { textAlign: "center" }]}>Elige la fecha</Text>
             <DateTimePicker
               value={fechaFiltro}
               mode="date"
@@ -176,144 +300,149 @@ export default function HistorialVentas() {
               maximumDate={new Date()}
               locale="es-ES"
             />
-            <TouchableOpacity style={styles.btnAceptar} onPress={() => setShowDatePicker(false)}>
-              <Text style={styles.btnAceptarTexto}>Confirmar</Text>
-            </TouchableOpacity>
+            <Pressable style={styles.btnAceptar} onPress={() => setShowDatePicker(false)}>
+              <Text style={styles.btnAceptarTexto}>Ver reporte</Text>
+            </Pressable>
           </View>
         </View>
-      )
-    );
-  };
-
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.titulo}>Reportería</Text>
-            <Text style={styles.subtitulo}>
-              {fechaFiltro.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
-            </Text>
-          </View>
-          {Platform.OS !== "web" && (
-            <TouchableOpacity style={styles.btnCalendario} onPress={() => setShowDatePicker(true)}>
-              <Text style={{ fontSize: 24 }}>📅</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {Platform.OS === "web" && renderDatePicker()}
-
-        {cargando ? (
-          <ActivityIndicator size="large" color="#007AFF" style={{ marginTop: 50 }} />
-        ) : (
-          <FlatList
-            data={ventas}
-            keyExtractor={(item) => item.id.toString()}
-            ListHeaderComponent={
-              <>
-                <View style={styles.resumenCard}>
-                  <Text style={styles.resumenLabel}>Total Recaudado</Text>
-                  <Text style={styles.resumenMonto}>
-                    ${ventas.reduce((acc, v) => acc + v.total, 0).toLocaleString("es-ES")}
-                  </Text>
-                  
-                  <View style={styles.desglosePagos}>
-                    <Text style={styles.desgloseTexto}>💵 EF: ${ventas.filter(v => v.metodo_pago === 'Efectivo').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
-                    <Text style={styles.desgloseTexto}>📱 TR: ${ventas.filter(v => v.metodo_pago === 'Transferencia').reduce((a, b) => a + b.total, 0).toLocaleString()}</Text>
-                  </View>
-
-                  <TouchableOpacity style={styles.btnWhatsApp} onPress={enviarReporteWhatsApp}>
-                    <Text style={styles.btnWhatsAppTexto}>🟢 Enviar Reporte WhatsApp</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {obtenerResumenToppings().length > 0 && (
-                  <View style={styles.insumosContainer}>
-                    <Text style={styles.insumosTitulo}>Insumos Usados</Text>
-                    <View style={styles.chipsContainer}>
-                      {obtenerResumenToppings().map((item, i) => (
-                        <View key={i} style={styles.chip}>
-                          <Text style={styles.chipTexto}>{item.nombre} <Text style={styles.chipCantidad}>x{item.cantidad}</Text></Text>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                )}
-              </>
-            }
-            renderItem={({ item }) => (
-              <View style={styles.ventaItem}>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Text style={styles.nombreProducto}>{item.nombre_producto}</Text>
-                    
-                    {/* Badge Método de Pago */}
-                    <View style={[styles.badgeMetodo, { backgroundColor: item.metodo_pago === 'Efectivo' ? '#E1F5FE' : '#F3E5F5' }]}>
-                        <Text style={[styles.badgeTexto, { color: item.metodo_pago === 'Efectivo' ? '#0288D1' : '#7B1FA2' }]}>
-                            {item.metodo_pago === 'Efectivo' ? '💵 EF' : '📱 TR'}
-                        </Text>
-                    </View>
-
-                    {/* Badge Domicilio (NUEVO) */}
-                    {item.es_domicilio && (
-                      <View style={[styles.badgeMetodo, styles.badgeDomi]}>
-                        <Text style={styles.badgeTextoDomi}>🛵 DOMI</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={styles.textoToppings}>{item.toppings_texto}</Text>
-                  <Text style={styles.hora}>
-                    {new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </Text>
-                </View>
-                <Text style={styles.precioVenta}>${item.total.toLocaleString("es-ES")}</Text>
-              </View>
-            )}
-            ListEmptyComponent={<Text style={styles.listaVacia}>No hay ventas registradas.</Text>}
-          />
-        )}
-        {Platform.OS !== "web" && renderDatePicker()}
-      </View>
+      )}
     </SafeAreaView>
   );
 }
 
+function Dato({
+  icono,
+  etiqueta,
+  valor,
+}: {
+  icono: keyof typeof Ionicons.glyphMap;
+  etiqueta: string;
+  valor: string;
+}) {
+  return (
+    <View style={styles.dato}>
+      <View style={styles.datoEtiqueta}>
+        <Ionicons name={icono} size={14} color={color.ciruelaSuave} />
+        <Text style={texto.pequeno}>{etiqueta}</Text>
+      </View>
+      <Text style={[texto.numeros, styles.datoValor]}>{valor}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#F8F9FA" },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 10 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 20 },
-  titulo: { fontSize: 26, fontWeight: "bold", color: "#1A1A1A" },
-  subtitulo: { fontSize: 14, color: "#666", textTransform: "capitalize" },
-  btnCalendario: { backgroundColor: "white", padding: 12, borderRadius: 15, elevation: 3 },
-  resumenCard: { backgroundColor: "#007AFF", padding: 20, borderRadius: 20, marginBottom: 20, alignItems: "center" },
-  resumenLabel: { color: "rgba(255,255,255,0.8)", fontSize: 14 },
-  resumenMonto: { color: "white", fontSize: 32, fontWeight: "bold" },
-  desglosePagos: { flexDirection: 'row', gap: 15, marginTop: 5 },
-  desgloseTexto: { color: 'white', fontSize: 12, fontWeight: '500' },
-  ventaItem: { backgroundColor: "white", padding: 16, borderRadius: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", elevation: 2 },
-  nombreProducto: { fontSize: 16, fontWeight: "bold" },
-  badgeMetodo: { marginLeft: 8, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  badgeDomi: { backgroundColor: '#FFF7E6', borderColor: '#FFD591', borderWidth: 0.5 },
-  badgeTexto: { fontSize: 9, fontWeight: 'bold' },
-  badgeTextoDomi: { fontSize: 9, fontWeight: 'bold', color: '#D48806' },
-  textoToppings: { fontSize: 13, color: "#666" },
-  hora: { fontSize: 11, color: "#AAA" },
-  precioVenta: { fontSize: 17, fontWeight: "bold", color: "#28a745" },
-  webPickerContainer: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 15, backgroundColor: "#fff", padding: 10, borderRadius: 10 },
-  webLabel: { fontWeight: "bold", color: "#555" },
-  modalOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  btnAceptar: { backgroundColor: "#007AFF", padding: 15, borderRadius: 10, marginTop: 10 },
-  btnAceptarTexto: { color: "white", textAlign: "center", fontWeight: "bold" },
-  insumosContainer: { backgroundColor: "white", padding: 15, borderRadius: 20, marginBottom: 20 },
-  insumosTitulo: { fontSize: 12, fontWeight: "800", color: "#555", marginBottom: 10, textTransform: "uppercase" },
-  chipsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { backgroundColor: "#F0F2F5", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-  chipTexto: { fontSize: 12 },
-  chipCantidad: { fontWeight: "bold", color: "#007AFF" },
-  btnWhatsApp: { backgroundColor: "#25D366", padding: 12, borderRadius: 12, marginTop: 15, width: '100%', alignItems: 'center' },
-  btnWhatsAppTexto: { color: "white", fontWeight: "bold" },
-  listaVacia: { textAlign: "center", marginTop: 50, color: "#999" },
-  pickerContainer: { backgroundColor: "white", width: "90%", borderRadius: 20, padding: 20 },
-  pickerTitle: { fontSize: 18, fontWeight: "bold", textAlign: "center", marginBottom: 10, color: "#333" },
+  safeArea: { flex: 1, backgroundColor: color.leche },
+  contenido: {
+    padding: espacio.l,
+    paddingBottom: espacio.xxl,
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
+  },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: espacio.m,
+    marginBottom: espacio.xl,
+  },
+  fecha: { textTransform: "capitalize" },
+  btnFecha: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: espacio.s,
+    minHeight: 44,
+    paddingHorizontal: espacio.m,
+    borderRadius: radio.m,
+    backgroundColor: color.fresaSuave,
+  },
+  btnFechaTexto: { color: color.fresa, fontWeight: "600", fontSize: 15 },
+
+  desglose: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: espacio.l,
+    marginTop: espacio.m,
+    paddingVertical: espacio.m,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: color.linea,
+  },
+  dato: { flexGrow: 1, minWidth: 96 },
+  datoEtiqueta: { flexDirection: "row", alignItems: "center", gap: espacio.xs },
+  datoValor: { fontSize: 17, fontWeight: "700", color: color.ciruela, marginTop: 2 },
+
+  btnWhatsApp: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: espacio.s,
+    minHeight: tactil,
+    borderRadius: radio.m,
+    backgroundColor: color.whatsapp,
+    marginTop: espacio.l,
+  },
+  btnWhatsAppTexto: { color: color.superficie, fontWeight: "700", fontSize: 16 },
+
+  tituloSeccion: { marginTop: espacio.xl, marginBottom: espacio.s },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: espacio.s },
+  chip: {
+    flexDirection: "row",
+    gap: espacio.xs,
+    backgroundColor: color.superficie,
+    borderWidth: 1,
+    borderColor: color.linea,
+    paddingHorizontal: espacio.m,
+    paddingVertical: espacio.s,
+    borderRadius: radio.s,
+  },
+  chipTexto: { fontSize: 14, color: color.ciruela },
+  chipCantidad: { fontSize: 14, fontWeight: "700", color: color.fresa },
+
+  separador: { height: 1, backgroundColor: color.linea },
+  ventaFila: { flexDirection: "row", alignItems: "center", paddingVertical: espacio.m, gap: espacio.m },
+  ventaNombre: { fontSize: 16, fontWeight: "600", color: color.ciruela },
+  ventaMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: espacio.s,
+    marginTop: espacio.xs,
+  },
+  chipDomi: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: espacio.xs,
+    backgroundColor: color.barquilloSuave,
+    paddingHorizontal: espacio.s,
+    paddingVertical: 2,
+    borderRadius: radio.s,
+  },
+  chipDomiTexto: { fontSize: 13, fontWeight: "600", color: color.barquilloTexto },
+  vacio: { paddingVertical: espacio.xl },
+
+  velo: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: color.velo,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  pickerContainer: {
+    backgroundColor: color.superficie,
+    width: "90%",
+    borderRadius: radio.l,
+    padding: espacio.xl,
+  },
+  btnAceptar: {
+    backgroundColor: color.fresa,
+    minHeight: tactil,
+    justifyContent: "center",
+    borderRadius: radio.m,
+    marginTop: espacio.m,
+  },
+  btnAceptarTexto: { color: color.superficie, textAlign: "center", fontWeight: "700", fontSize: 16 },
 });
