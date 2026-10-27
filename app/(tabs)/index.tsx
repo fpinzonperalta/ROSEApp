@@ -46,14 +46,14 @@ interface VentaFormateada {
 
 type MetodoPago = "Efectivo" | "Transferencia";
 
-// Producto + toppings; si el producto tiene primer_topping se descuenta el topping
-// más caro sin contar "helado". La base de datos recalcula el mismo total al guardar.
+// Producto + toppings; si el producto tiene primer_topping se regala el topping
+// más barato sin contar "helado". La base de datos recalcula el mismo total al guardar.
 function calcularTotal(producto: Producto, toppings: Topping[]) {
   const costoToppings = toppings.reduce((acc, t) => acc + t.precio, 0);
   const paraDescuento = toppings.filter((t) => t.nombre.toLowerCase() !== "helado");
   const descuento =
     producto.primer_topping && paraDescuento.length > 0
-      ? Math.max(...paraDescuento.map((t) => t.precio))
+      ? Math.min(...paraDescuento.map((t) => t.precio))
       : 0;
   return producto.precio + costoToppings - descuento;
 }
@@ -347,7 +347,7 @@ function PantallaVentas() {
                 </Text>
               </View>
               {productoActual.primer_topping && (
-                <Text style={texto.pequeno}>El primer topping va incluido.</Text>
+                <Text style={texto.pequeno}>Un topping va incluido: se regala el más barato.</Text>
               )}
 
               {productoActual.tiene_toppings && (

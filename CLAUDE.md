@@ -29,7 +29,7 @@ No hay tests ni linter configurados.
 - **Diálogos:** la app corre en PC (web) y móvil. `Alert.alert` no hace nada en react-native-web, así que para avisos y confirmaciones usar `avisar` / `confirmar` de `lib/dialogos.ts`, nunca `Alert` directamente.
 - **Fechas:** los filtros "del día" se arman en hora local. No usar `toISOString().split("T")[0]` para obtener la fecha (es UTC y en la noche da el día siguiente); ver `fechaLocalISO` en `reporte.tsx`.
 - **Pantallas** (`app/(tabs)/`), cada una autocontenida (estado, lógica, estilos en el mismo archivo):
-  - `index.tsx` — **Ventas**. Solo móvil (en web muestra un aviso). Registra ventas sin login. Calcula el total en el cliente: producto + toppings, y si el producto tiene `primer_topping` se descuenta el topping más caro (excluyendo "helado").
+  - `index.tsx` — **Ventas**. Solo móvil (en web muestra un aviso). Registra ventas sin login. Calcula el total en el cliente: producto + toppings, y si el producto tiene `primer_topping` se regala el topping más barato (excluyendo "helado").
   - `reporte.tsx` — **Reporte** diario por fecha (datetimepicker).
   - `admin.tsx` — **Admin**. Solo visible en web (`href: null` en otras plataformas, ver `app/(tabs)/_layout.tsx`). Login con `supabase.auth.signInWithPassword`; CRUD paginado sobre `productos` y `toppings` usando `activeTab` como nombre de tabla.
 

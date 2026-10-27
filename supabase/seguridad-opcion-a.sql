@@ -81,7 +81,8 @@ create policy ventas_toppings_crear on public.ventas_toppings
 -- ---------------------------------------------------------------------
 -- 4. Total calculado en el servidor.
 --    Misma regla que la app: producto + toppings, y si el producto tiene
---    primer_topping se descuenta el topping más caro (sin contar "helado").
+--    primer_topping se regala el topping más barato (sin contar "helado").
+--    (Regla actualizada en regalo-topping-mas-barato.sql.)
 --    security definer: las funciones escriben ventas.total aunque el rol
 --    anon no tenga permiso de update.
 -- ---------------------------------------------------------------------
@@ -132,7 +133,7 @@ begin
                         from ventas_toppings vt
                         where vt.venta_id = v.id), 0)
             - case when p.primer_topping then
-                coalesce((select max(vt.precio_al_momento)
+                coalesce((select min(vt.precio_al_momento)
                           from ventas_toppings vt
                           join toppings tp on tp.id = vt.topping_id
                           where vt.venta_id = v.id

@@ -16,7 +16,7 @@ Columna en `ventas` con `default` (ver skill `nueva-tabla` para SQL y RLS).
 1. Interfaz `VentaFormateada`: agregar el campo.
 2. Estado del formulario (`useState`, junto a `metodoPago` / `esDomicilio`).
 3. Resetearlo en `seleccionarProducto` para que no se arrastre de la venta anterior.
-4. Selector en el modal de venta (mismo estilo `payOption` / `payOptionActive`).
+4. Selector en la hoja de cobro con el componente `Segmentado` (como Local/Domicilio y Efectivo/Transferencia); colores y tamaños de `lib/tema.ts`.
 5. `insert` en `finalizarVenta`.
 6. `select` de `consultarVentasHoy` y su `map` (con valor por defecto, p. ej. `|| false`).
 7. Mostrarlo en la lista del día si aplica.
@@ -30,8 +30,19 @@ Columna en `ventas` con `default` (ver skill `nueva-tabla` para SQL y RLS).
 
 ## 4. Precio
 
-Si el campo cambia el total (recargo, descuento), el cálculo está en `finalizarVenta` del cliente. Mantén la regla existente: `primer_topping` descuenta el topping más caro excepto "helado".
+El total vive en **dos lugares que deben coincidir**:
 
-## 5. Verificar
+- Cliente: `calcularTotal` en `index.tsx` (solo informativo: el botón "Cobrar $X").
+- Base de datos: la función `venta_recalcular_total` (y `venta_precio_base`), que es la que guarda el total real. Se cambia con un script nuevo en `supabase/` que haga `create or replace function`, y se actualiza también `supabase/seguridad-opcion-a.sql` para que una re-ejecución no revierta la regla.
+
+Regla vigente: `primer_topping` regala el topping más barato, sin contar "helado".
+
+Un cambio solo en la base de datos aplica de inmediato a todos los celulares, incluso con el APK viejo; el cliente llega con `eas update`.
+
+## 5. Avisos y fechas
+
+Usar `avisar` / `confirmar` de `lib/dialogos.ts` (nunca `Alert`, no funciona en web) y fechas locales (`fechaLocalISO`, nunca `toISOString().split("T")[0]`).
+
+## 6. Verificar
 
 `npx tsc --noEmit`, y en el teléfono: registrar una venta con y sin la opción, revisar la lista del día y el reporte de hoy. Actualizar "Modelo de datos" en `CLAUDE.md`.
