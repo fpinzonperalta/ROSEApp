@@ -16,6 +16,7 @@ import { supabase } from "../../supabaseConfig";
 import { avisar, confirmar } from "../../lib/dialogos";
 import { color, espacio, fuente, radio, tactil, texto } from "../../lib/tema";
 import { hora, pesos } from "../../lib/formato";
+import { Segmentado } from "../../lib/Segmentado";
 
 interface Topping {
   id: number;
@@ -423,42 +424,6 @@ function PantallaVentas() {
   );
 }
 
-function Segmentado<T>({
-  opciones,
-  valor,
-  onCambio,
-}: {
-  opciones: { valor: T; texto: string; icono: keyof typeof Ionicons.glyphMap }[];
-  valor: T;
-  onCambio: (v: T) => void;
-}) {
-  return (
-    <View style={styles.segmentado}>
-      {opciones.map((op) => {
-        const activo = op.valor === valor;
-        return (
-          <Pressable
-            key={op.texto}
-            style={[styles.segmento, activo && styles.segmentoActivo]}
-            onPress={() => onCambio(op.valor)}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: activo }}
-          >
-            <Ionicons
-              name={op.icono}
-              size={18}
-              color={activo ? color.superficie : color.ciruelaSuave}
-            />
-            <Text style={[styles.segmentoTexto, activo && { color: color.superficie }]}>
-              {op.texto}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: color.leche },
   contenido: { padding: espacio.l, paddingBottom: espacio.xxl },
@@ -558,25 +523,6 @@ const styles = StyleSheet.create({
   },
   chipToppingActivo: { borderColor: color.fresa, backgroundColor: color.fresaSuave },
   chipToppingTexto: { fontSize: 15, fontWeight: "600", color: color.ciruela },
-
-  segmentado: {
-    flexDirection: "row",
-    backgroundColor: color.leche,
-    borderRadius: radio.m,
-    padding: espacio.xs,
-    gap: espacio.xs,
-  },
-  segmento: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: espacio.s,
-    minHeight: 44,
-    borderRadius: radio.s,
-  },
-  segmentoActivo: { backgroundColor: color.ciruela },
-  segmentoTexto: { fontSize: 15, fontWeight: "600", color: color.ciruelaSuave },
 
   btnCobrar: {
     backgroundColor: color.fresa,
